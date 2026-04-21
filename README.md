@@ -1,79 +1,317 @@
-# FDF
-42 Barcelona
-为了高效开启你的 42 Barcelona Common Core 旅程，我仔细分析了你提供的三个项目 PDF（fdf, fract-ol, so_long）。
-### 1. 建议与理解
-**我对这份材料的理解：**
-这三个项目都属于 **Graphics (图形学)** 分支。
- * **FDF**：侧重于**数学投影（3D转2D）**和线段绘制算法（Bresenham），是理解空间坐标系的最佳入口。
- * **Fract-ol**：侧重于**复数运算、分形算法**以及性能优化（数学循环），适合对算法效率有追求的同学。
- * **So Long**：侧重于**游戏逻辑、地图解析**和基础的 2D 碰撞检测，更像是一个完整的应用开发。
-**我建议选哪个？**
-我强烈建议你先做 **FDF**。
-**理由：** 它是 42 图形学分支的“基石”。它会强制你理解如何在屏幕上操纵像素，以及如何处理最基础的 3D 坐标转换。通过 FDF 后，你会对 MLX（MiniLibX）的底层逻辑有深刻理解，再去写 So Long 或 Fract-ol 会顺手得多。
-**你现在最应该做什么：**
- 1. **别急着写代码**：先搞清楚什么是“等轴投影”（Isometric Projection）以及 Bresenham 算法。
- 2. **环境配置**：确保你的 42 机器（或本地虚拟机）已经配好了 MiniLibX。
-### FDF 项目深度解析
-#### 1. 一句话总结
-FDF 是一个通过读取包含高度数据的文本文件，将其渲染成 3D 线框景观（Wireframe）的图形程序。
-#### 2. 项目目标与限制
- * **目标**：在窗口中展示一个 3D 景观；必须支持“等轴投影”；必须能平滑处理窗口关闭（ESC 或点击红叉）。
- * **限制**：
-   * 必须符合 **Norminette** 规范。
-   * 除了 libft 提供的函数，只能使用 open, read, write, close, malloc, free, perror, strerror, exit 以及 math 库和 MiniLibX。
-   * **内存管理**：绝对不能有内存泄漏，任何报错必须优雅退出。
-#### 3. 核心思路
-项目的本质是：**数据解析 -> 坐标变换 -> 像素渲染**。
- 1. 从 .fdf 文件读取高度值，存入一个二维坐标系。
- 2. 将每个点的 (x, y, z) 坐标通过数学公式转换为屏幕上的 (x', y') 像素坐标。
- 3. 使用 **Bresenham 线段算法** 将相邻的两个像素点连接起来。
-#### 4. 具体实现顺序（避坑指南）
- 1. **解析器 (Parser)**：
-   * 利用 get_next_line 读取文件。
-   * 使用 ft_split 将每一行的高度值拆分。
-   * **重点**：记录地图的最大宽度和高度，将数据存入一个结构体数组。
- 2. **MLX 初始化**：
-   * 初始化 mlx_ptr 和 win_ptr。
-   * **进阶建议**：直接使用 mlx_new_image，先在 Image 缓冲区画图，最后一次性推送到窗口，这样才不会闪屏。
- 3. **数学投影函数**：
-   * 实现一个函数 isometric(int *x, int *y, int z)，通过公式转换坐标。
- 4. **连线算法 (Bresenham)**：
-   * 实现 draw_line(point_a, point_b)，负责在两个投影后的坐标间填满像素。
- 5. **渲染循环**：
-   * 遍历你的二维数据数组，对每个点向右、向下连线。
-#### 5. 代码建议
- * **结构体设计**：不要把变量散落在外面。定义一个 t_fdf 结构体，包含地图数据、MLX 指针和图像信息。
- * **防御性编程**：在解析地图时，检查每一行的宽度是否一致。如果不一致，直接输出 Error\n 退出，防止程序 crash。
- * **颜色处理**：PDF 提到地图文件可能带十六进制颜色（如 10,0xFF0000），在 ft_atoi 之后要记得处理这些。
-#### 6. 测试方法
- 1. **空文件/畸形文件**：输入一个空文件或每行长度不齐的文件，程序不应 Segfault。
- 2. **超大地图**：测试 42.fdf 这种大地图，观察缩放是否正常，是否会卡死。
- 3. **内存检查**：使用 valgrind --leak-check=full ./fdf maps/test.fdf（如果在 MacOS 上，请使用 leaks 命令）。
-#### 7. 常见错误
- * **坐标偏移**：渲染出来的图在屏幕角落里。你需要计算一个偏移量（offset），把图像中心对准屏幕中心。
- * **比例失调**：高度（Z值）太夸张，导致图像变成“刺猬”。需要加一个 z_scale 变量来调节高度。
- * **连线丢失**：只连了横线没连竖线，或者数组越界导致最后一行没画出来。
-**下一步建议：**
-如果你同意从 **FDF** 开始，请告诉我。我会先教你**如何设计那个存放坐标的核心结构体**，这是整个项目的骨架。等你敲定了结构体，我们再写解析函数。你觉得呢？
+# FdF — Fil de Fer · 3D 线框地图渲染器
 
-太顶了！既然决定死磕 FDF，咱们就按最稳的节奏来，保证你一次过评审，绝不翻车。
-根据 42 的 Norminette 规范和项目要求，我们写代码绝对不能上来就一顿狂敲。万丈高楼平地起，第一步必须是**搭建底层数据骨架（定义结构体）**。
-下面是按照要求为你整理的项目启动方案：
-### 1. 项目理解
- * **目标是什么**：为 FDF 项目设计一个“大管家”结构体，把地图数据、窗口系统（MLX）指针、甚至后续的渲染参数全部封装在一起。
- * **为什么这样做**：在 42 的 Norminette 规则下，单个函数最多 4 个参数，最多 25 行代码。如果我们把变量散落在各处，或者全塞在 main 函数里，传来传去绝对会把参数列表挤爆。用一个集中的 t_fdf 结构体，只需传递一个指针，就能在所有函数里随叫随到，简直 YYDS。
-### 2. 设计思路
-我们的核心数据结构需要涵盖三大模块：
- 1. **地图数据**：长、宽，以及最关键的 Z 轴高度矩阵（每个点有多高）。
- 2. **MLX 视窗数据**：连接底层系统和显示器的 mlx_ptr，以及窗口本身的 win_ptr。
- 3. **图像缓冲 (Image Buffer)**：为了防止画面一闪一闪的（掉帧/闪屏），我们绝不能直接在屏幕上画点，而是要先在一个“后台画布（Image）”上画好，最后一次性贴到窗口上。
-### 3. 文件/函数拆分
-对于起步阶段，我们只需要创建基础文件：
- * fdf.h：存放所有的宏定义、#include 和核心结构体 t_fdf。
- * main.c：程序入口，暂时只用来测试头文件是否配置正确。
-### 4. 核心实现
-这是我为你设计的符合良好实践和 Norminette 规范的头文件。你可以直接在项目根目录创建并写入：
-**fdf.h**
+> **42 Barcelona · Common Core Project**
+> 本 README 同时作为项目的**实现教程（Tutorial）**，按照代码实际编写顺序，从强制部分（Mandatory）到 Bonus 逐步拆解每一个模块。
+
+---
+
+## 目录 Table of Contents
+
+1. [项目概述 Overview](#1-项目概述-overview)
+2. [文件结构 Project Structure](#2-文件结构-project-structure)
+3. [编译与运行 Build & Run](#3-编译与运行-build--run)
+4. [核心数学原理 Core Math](#4-核心数学原理-core-math)
+5. [数据结构 Data Structures](#5-数据结构-data-structures)
+6. [实现指南：强制部分 Mandatory](#6-实现指南强制部分-mandatory)
+   - [Step 1 · libft — 依赖库](#step-1--libft--依赖库)
+   - [Step 2 · fdf.h — 头文件与数据结构](#step-2--fdfh--头文件与数据结构)
+   - [Step 3 · ft_parse.c — 地图解析器](#step-3--ft_parsec--地图解析器)
+   - [Step 4 · ft_project.c — 投影与相机](#step-4--ft_projectc--投影与相机)
+   - [Step 5 · ft_utils.c — 工具函数](#step-5--ft_utilsc--工具函数)
+   - [Step 6 · ft_hooks.c — 键盘交互](#step-6--ft_hooksc--键盘交互)
+   - [Step 7 · ft_render.c — 渲染循环 ⚠️ MLX + Bresenham](#step-7--ft_renderc--渲染循环--mlx--bresenham)
+   - [Step 8 · ft_main.c — 程序入口与 MLX 初始化](#step-8--ft_mainc--程序入口与-mlx-初始化)
+7. [实现指南：Bonus 部分](#7-实现指南bonus-部分)
+8. [测试与调试 Testing](#8-测试与调试-testing)
+9. [常见错误 Common Bugs](#9-常见错误-common-bugs)
+
+---
+
+## 1. 项目概述 Overview
+
+FdF（*Fil de Fer*，法语"铁丝"）要求读取一个 `.fdf` 高度图文件，将其渲染为**等轴投影（Isometric Projection）的三维线框景观**，并通过键盘实时控制视角。
+
+**程序管线（Pipeline）：**
+
+```
+.fdf 文件
+    │
+    ▼
+地图解析 (Parser)
+ 读取行列，存储 Z 高度值与颜色
+    │
+    ▼
+相机初始化 (Camera)
+ 计算初始缩放、偏移，居中地图
+    │
+    ▼
+投影变换 (Projection)
+ (x, y, z) ──等轴公式──▶ 屏幕 (px, py)
+    │
+    ▼
+MLX 图像缓冲 (Image Buffer)
+ 使用 mlx_new_image 创建离屏画布
+    │
+    ▼
+Bresenham 连线 (draw_line)
+ 在画布上逐像素绘制边（横向 + 纵向）
+    │
+    ▼
+推送到窗口 (mlx_put_image_to_window)
+    │
+    ▼
+事件循环 (mlx_loop)
+ 监听键盘 → 更新相机 → 重新渲染
+```
+
+---
+
+## 2. 文件结构 Project Structure
+
+```
+FDF/
+├── en.subject.pdf/          # 三份项目 PDF（FDF / So Long / fract'ol）
+├── includes/
+│   ├── fdf.h                # 所有结构体、宏定义、函数原型
+│   └── fdf_bonus.h          # Bonus 专用头文件
+├── src/                     # 强制部分源文件（ft_*.c）
+│   ├── ft_main.c            # 程序入口 + MLX 初始化
+│   ├── ft_parse.c           # .fdf 文件解析器
+│   ├── ft_project.c         # 等轴/平行投影 + 相机初始化
+│   ├── ft_render.c          # 渲染循环 + Bresenham 连线
+│   ├── ft_hooks.c           # 键盘事件处理
+│   └── ft_utils.c           # 工具函数（error、free、颜色插值、像素写入）
+├── bonus/                   # Bonus 源文件（ft_*_bonus.c）
+│   ├── ft_main_bonus.c
+│   ├── ft_parse_bonus.c
+│   ├── ft_render_bonus.c
+│   └── ft_utils_bonus.c
+├── libft/                   # libft 依赖库
+├── minilibx_linux/          # MiniLibX（Linux）图形库
+└── Makefile
+```
+
+---
+
+## 3. 编译与运行 Build & Run
+
+```bash
+# 编译强制部分
+make
+
+# 编译 Bonus
+make bonus
+
+# 运行（需要一个 .fdf 地图文件）
+./fdf maps/42.fdf
+
+# 清理目标文件
+make clean
+
+# 清理所有（目标文件 + 可执行文件）
+make fclean
+
+# 重新编译
+make re
+```
+
+**键位说明 Keybindings：**
+
+| 按键 | 功能 |
+|------|------|
+| `ESC` | 退出程序 |
+| `W / S` | 上 / 下平移 |
+| `A / D` | 左 / 右平移 |
+| `Q / E` | 逆时针 / 顺时针旋转（Z 轴） |
+| `+ / -` | 放大 / 缩小 |
+| `R` | 重置视角 |
+| `I` | 切换到等轴投影 |
+| `P` | 切换到平行俯视投影 |
+
+---
+
+## 4. 核心数学原理 Core Math
+
+### 4.1 等轴投影 Isometric Projection
+
+等轴投影将三维坐标 `(x, y, z)` 映射到二维屏幕坐标 `(px, py)`，使三个轴看起来等长且成 120° 夹角。
+
+**公式：**
+
+```
+px = (x - y) × cos(30°) × zoom  +  x_offset
+py = (x + y) × sin(30°) × zoom  -  z  +  y_offset
+```
+
+其中 `cos(30°) = √3/2 ≈ 0.866`，`sin(30°) = 0.5`。
+
+**可视化：**
+
+```
+        Z（高度）
+        │
+        │   Y（地图列向前）
+        │  /
+        │ /
+        └──────── X（地图行向右）
+
+等轴视图下三轴均成 120°，Z 轴垂直向上（影响 py）
+```
+
+### 4.2 Z 轴旋转（可选增强）
+
+在投影前先绕 Z 轴旋转 `θ` 角：
+
+```
+x' = x × cos(θ) - y × sin(θ)
+y' = x × sin(θ) + y × cos(θ)
+```
+
+再将 `(x', y')` 代入等轴公式，即可实现地图任意角度旋转。
+
+### 4.3 初始缩放计算
+
+地图在等轴视图下的近似屏幕宽度 ≈ `(cols + rows) × zoom × cos(30°)`。
+为使地图居中填满窗口 80%：
+
+```c
+zoom = (WIN_W < WIN_H ? WIN_W : WIN_H) * 0.8
+       / ((map->cols + map->rows) * cos(M_PI / 6.0));
+```
+
+---
+
+## 5. 数据结构 Data Structures
+
+所有结构体集中在 `includes/fdf.h`，遵循 Norminette 命名规范（`t_` 前缀）。
+
+### `t_point` — 屏幕投影点
+
+```c
+typedef struct s_point
+{
+    double  x;      // 投影后屏幕 X 坐标
+    double  y;      // 投影后屏幕 Y 坐标
+    double  z;      // 缩放后的 Z 值（用于颜色插值）
+    int     color;  // 该点的像素颜色（0xRRGGBB）
+}   t_point;
+```
+
+### `t_map` — 地图数据
+
+```c
+typedef struct s_map
+{
+    int     rows;       // 行数（Y 方向）
+    int     cols;       // 列数（X 方向）
+    int     **z;        // 二维高度矩阵 z[row][col]
+    int     **color;    // 二维颜色矩阵（显式颜色，无则为 0）
+    char    **has_color;// 标记该格是否有显式颜色（1=有，0=无）
+    int     z_max;      // 最大高度（用于颜色归一化）
+    int     z_min;      // 最小高度
+}   t_map;
+```
+
+> **为什么用 `int **` 而非 `int *`（一维）？**
+> 两种方式均可。`int **` 在访问时更直观（`z[row][col]`），
+> `int *`（一维，寻址公式 `z[row * cols + col]`）分配更简洁、缓存友好。
+> 本项目选用 `int **` 提高可读性，通过一次性分配每行来保持内存局部性。
+
+### `t_cam` — 相机参数
+
+```c
+typedef struct s_cam
+{
+    double  zoom;   // 缩放倍数
+    double  x_off;  // 屏幕 X 偏移（用于居中 + 平移）
+    double  y_off;  // 屏幕 Y 偏移
+    double  z_rot;  // 绕 Z 轴旋转角度（弧度）
+    int     proj;   // 投影模式：ISO(0) 或 PARALLEL(1)
+}   t_cam;
+```
+
+### `t_img` — MLX 图像缓冲
+
+```c
+typedef struct s_img
+{
+    void    *ptr;     // mlx_new_image 返回的指针
+    char    *addr;    // 像素数组首地址（mlx_get_data_addr）
+    int     bpp;      // 每像素位数（通常为 32）
+    int     ll;       // 每行字节数（line_length）
+    int     endian;   // 字节序
+}   t_img;
+```
+
+### `t_fdf` — 总管家结构体
+
+```c
+typedef struct s_fdf
+{
+    void    *mlx;   // MLX 连接实例
+    void    *win;   // 窗口指针
+    t_img   img;    // 图像缓冲（离屏渲染）
+    t_map   *map;   // 地图数据
+    t_cam   cam;    // 相机参数
+}   t_fdf;
+```
+
+> **Norminette 传参技巧：** 单个函数最多 4 个参数。
+> 只传 `t_fdf *fdf`，所有子系统都从这一个指针访问，无需多参数。
+
+---
+
+## 6. 实现指南：强制部分 Mandatory
+
+### Step 1 · libft — 依赖库
+
+FdF 需要 libft 提供以下函数（放在 `libft/` 目录，由 `libft/Makefile` 编译为 `libft.a`）：
+
+| 函数 | 用途 |
+|------|------|
+| `ft_split(s, c)` | 按分隔符切割字符串（解析地图行） |
+| `ft_atoi(str)` | 字符串转整数（读取 Z 值） |
+| `ft_strlen(s)` | 字符串长度 |
+| `ft_strdup(s)` | 字符串复制 |
+| `ft_strjoin(s1, s2)` | 字符串拼接（GNL 内部使用） |
+| `ft_calloc(n, size)` | 分配并清零内存 |
+| `ft_bzero(ptr, n)` | 清零内存块 |
+| `ft_memset(ptr, c, n)` | 填充内存块 |
+| `ft_putstr_fd(s, fd)` | 向 fd 输出字符串（错误信息） |
+| `ft_putendl_fd(s, fd)` | 同上 + 换行 |
+| `ft_itoa(n)` | 整数转字符串（调试用） |
+| `get_next_line(fd)` | 逐行读取文件 |
+
+**`libft/Makefile` 关键规则：**
+
+```makefile
+NAME   = libft.a
+CC     = cc
+CFLAGS = -Wall -Wextra -Werror
+SRCS   = ft_memset.c ft_bzero.c ft_calloc.c ft_strlen.c ft_strdup.c \
+         ft_strjoin.c ft_split.c ft_atoi.c ft_itoa.c    \
+         ft_putstr_fd.c ft_putendl_fd.c get_next_line.c
+OBJS   = $(SRCS:.c=.o)
+
+all: $(NAME)
+$(NAME): $(OBJS)
+ar rcs $(NAME) $(OBJS)
+%.o: %.c libft.h
+$(CC) $(CFLAGS) -c $< -o $@
+clean:
+rm -f $(OBJS)
+fclean: clean
+rm -f $(NAME)
+re: fclean all
+.PHONY: all clean fclean re
+```
+
+---
+
+### Step 2 · fdf.h — 头文件与数据结构
+
+`includes/fdf.h` 是整个项目的"合同"——所有结构体定义、宏、函数原型都在这里集中声明。
+
 ```c
 #ifndef FDF_H
 # define FDF_H
@@ -82,330 +320,718 @@ FDF 是一个通过读取包含高度数据的文本文件，将其渲染成 3D 
 # include <unistd.h>
 # include <fcntl.h>
 # include <math.h>
-// 记得包含你自己的 libft 路径
-// # include "libft/libft.h" 
-// 根据你的系统（Mac/Linux）包含正确的 mlx 头文件
-// # include "mlx.h" 
+# include "../minilibx_linux/mlx.h"
+# include "../libft/libft.h"
 
-/* ** FDF 核心结构体 
-** 包含了程序运行所需的所有状态
-*/
+/* ── 窗口参数 ── */
+# define WIN_W     1280
+# define WIN_H     960
+# define WIN_TITLE "FdF"
+
+/* ── Linux X11 键码 ── */
+# define KEY_ESC   65307
+# define KEY_W     119
+# define KEY_A     97
+# define KEY_S     115
+# define KEY_D     100
+# define KEY_Q     113
+# define KEY_E     101
+# define KEY_R     114
+# define KEY_PLUS  61
+# define KEY_MINUS 45
+# define KEY_I     105
+# define KEY_P     112
+
+/* ── 投影模式 ── */
+# define ISO      0
+# define PARALLEL 1
+
+/* ── 默认颜色（高度渐变：低=蓝，高=橙红） ── */
+# define C_LOW  0x0000FF
+# define C_HIGH 0xFF4500
+
+/* ── 相机步进量 ── */
+# define MOVE_STEP  20.0
+# define ROT_STEP   0.05
+# define ZOOM_STEP  1.1
+
+typedef struct s_point
+{
+    double  x;
+    double  y;
+    double  z;
+    int     color;
+}   t_point;
+
+typedef struct s_map
+{
+    int     rows;
+    int     cols;
+    int     **z;
+    int     **color;
+    char    **has_color;
+    int     z_max;
+    int     z_min;
+}   t_map;
+
+typedef struct s_cam
+{
+    double  zoom;
+    double  x_off;
+    double  y_off;
+    double  z_rot;
+    int     proj;
+}   t_cam;
+
+typedef struct s_img
+{
+    void    *ptr;
+    char    *addr;
+    int     bpp;
+    int     ll;
+    int     endian;
+}   t_img;
+
 typedef struct s_fdf
 {
-    // --- 视窗与渲染系统 ---
-    void    *mlx_ptr;       // MLX 实例指针 (大环境)
-    void    *win_ptr;       // 窗口指针
-    void    *img;           // 图像缓冲指针 (后台画布)
-    char    *addr;          // 图像像素数组的首地址
-    int     bits_per_pixel; // 每个像素占用的位数
-    int     line_length;    // 一行像素占用的字节数
-    int     endian;         // 字节序 (大端/小端)
+    void    *mlx;
+    void    *win;
+    t_img   img;
+    t_map   *map;
+    t_cam   cam;
+}   t_fdf;
 
-    // --- 地图数据系统 ---
-    int     width;          // 地图的列数 (X轴最大值)
-    int     height;         // 地图的行数 (Y轴最大值)
-    int     **z_matrix;     // 存储高度数据的二维数组
-    
-    // --- 视角与变换控制 (提前预留，后面用到再讲) ---
-    int     zoom;           // 缩放比例
-    int     color;          // 线条颜色
-    int     shift_x;        // 画面水平偏移量
-    int     shift_y;        // 画面垂直偏移量
-} t_fdf;
+/* ── ft_parse.c ── */
+t_map   *ft_parse_map(const char *file);
+void    ft_free_map(t_map *map);
+
+/* ── ft_project.c ── */
+t_point ft_project(int col, int row, t_fdf *fdf);
+void    ft_init_cam(t_fdf *fdf);
+
+/* ── ft_render.c ── */
+void    ft_render(t_fdf *fdf);
+void    ft_draw_line(t_fdf *fdf, t_point p0, t_point p1);
+
+/* ── ft_hooks.c ── */
+int     ft_keypress(int key, t_fdf *fdf);
+int     ft_close(t_fdf *fdf);
+
+/* ── ft_utils.c ── */
+void    ft_error(const char *msg);
+void    ft_free_fdf(t_fdf *fdf);
+int     ft_lerp_color(int c1, int c2, double t);
+void    ft_pixel_put(t_img *img, int x, int y, int color);
+int     ft_hex_to_int(const char *hex);
 
 #endif
+```
+
+---
+
+### Step 3 · ft_parse.c — 地图解析器
+
+解析器采用**双路读取法（Two-Pass）**：
+- **第一遍**：只数行数（`rows`）和列数（`cols`），同时校验每行宽度一致。
+- **第二遍**：分配内存，填充 `z`、`color`、`has_color` 矩阵。
+
+**.fdf 文件格式：**
 
 ```
-### 5. 测试清单
-在你写下这段代码后，请进行以下操作来验证：
- 1. **编译检查**：随便写一个空的 main.c（包含 #include "fdf.h"），用 cc -Wall -Wextra -Werror main.c 编译一下，看看会不会报语法错误。
- 2. **Norm 检查**：运行 norminette fdf.h，确保你的制表符（Tab）和空格没有混用，且符合 42 规范。
-### 6. 常见 bug 与排查方法
- * **Bug 1: 结构体里忘记写 typedef**
-   * *现象*：每次用结构体都要写 struct s_fdf xxx，非常繁琐，且容易引发编译报错。
-   * *排查*：检查头文件开头是不是严格按照 typedef struct s_name { ... } t_name; 的格式写的。
- * **Bug 2: 宏防卫（Include Guards）缺失**
-   * *现象*：当多个文件互相 include 时，报出“重定义 (redefinition)”的致命错误。
-   * *排查*：养成肌肉记忆，写头文件第一秒就写上 #ifndef FDF_H, #define FDF_H 和最后的 #endif。
-骨架打好了，下一步我们要解决的是**“如何把 .fdf 文件里的文本数字，变成结构体里的 z_matrix 二维数组”**（即解析器 Parser 部分）。
-在准备写解析器之前，我想先听听你的想法：你觉得在 C 语言里，用 int ** (二维数组) 来存动态大小的地图数据，和用 int * (一维数组，通过数学公式计算行和列) 相比，哪种在后面写代码时会让你觉得更直观、更不容易踩坑越界？
+0  0  0  0  0
+0  1  1  1  0
+0  1  2  1  0
+0  1  1  1  0
+0  0  0  0  0
+```
 
-兄弟/姐妹，你这波理解直接在大气层！完全同意你的直觉，用 int *（一维数组）不仅是“比较好”，在 42 的考核环境里，它简直就是**最优解**。
-让我来给你盘一盘为什么高端局都喜欢用一维数组降维打击二维地图：
-### 为什么 int * 完爆 int **？
- 1. **防爆零神器（拒绝内存泄漏）**：
-   在 42，Memory Leak 是绝对的红线，抓到直接 0 分。
-   如果你用 int **，你需要先 malloc 一个指针数组，然后写个 while 循环为每一行单独 malloc 内存。不仅代码长得违背 Norminette（极易超过 25 行），而且如果在中途某一行 malloc 失败了，你还得写个极其恶心的回滚函数去把前面分配的行全部 free 掉。
-   用 int *，**只需一次 malloc，一次 free**。要么全成功，要么全失败，错误处理干净利落，稳如老狗。
- 2. **性能拉满（Cache Friendly）**：
-   int ** 分配的内存是东一块西一块的（碎片化）。而 int * 分配的是一整块连续的内存。在底层渲染遍历像素时，连续内存能大幅提高 CPU 缓存命中率，运行效率杠杠的。
-### 核心思路：如何用一维代替二维？
-其实非常简单，只需要记住一个核心数学转换公式。假设地图的宽度是 width：
- * 二维思维：你想取第 y 行，第 x 列的点 \rightarrow z_matrix[y][x]
- * 一维思维：你想取同一个点 \rightarrow z_matrix[y * width + x]
-### 最小修改方案
-既然确定了路线，我们需要把刚才的 t_fdf 结构体稍微修正一下。
-打开你的 fdf.h，把地图数据部分修改为：
-```c
-    // --- 地图数据系统 ---
-    int     width;          // 地图的列数 (X轴最大值)
-    int     height;         // 地图的行数 (Y轴最大值)
-    int     *z_matrix;      // 存储高度数据的一维数组 (用 y * width + x 寻址)
+带颜色的格式（`z值,0xRRGGBB`）：
 
 ```
-现在咱们的“大管家”结构体彻底完美了。下一步，我们要正式开始写 **Parser（解析器）**，用 get_next_line 和 ft_split 把 .fdf 文件里的数字塞进咱们的一维数组里。
-但在我们动手 malloc 这个一维数组之前，有一个绕不开的死结：**我们必须得先知道数组要开多大**（也就是地图的 width 和 height 到底是多少）。
-面对一个完全未知大小的文本文件，你觉得我们应该用什么策略，才能把这个文件的真实行数和列数给精确地提前“盘”出来？
+0,0x000000  0,0x0000FF  0
+1,0xFF0000  2,0x00FF00  1
+```
 
-这就是写解析器（Parser）最经典的一个“先有鸡还是先有蛋”的问题：**没分配内存没法存数据，但不读一遍文件又不知道该分配多大内存。**
-在 42 的 FDF 项目里，处理这个问题的最稳妥、最标准的方案叫做 **“双路读取法” (Two-Pass Approach)**。
-### 1. 一句话总结
-**先“虚晃一枪”读一遍文件只为数数（行数和列数），关掉文件重新打开，再“动真格”地读一遍存数据。**
-### 2. 项目目标
-在正式分配 z_matrix 内存之前，精确获取 width (每行多少个数字) 和 height (一共有多少行)。
-### 3. 核心思路
- 1. **第一遍读 (Get Dimensions)**：
-   * 用 get_next_line 循环读取。
-   * 每读到一行，height++。
-   * 只在读第一行时，用 ft_split 拆开并数一下有多少个单词，这就是 width。
- 2. **验证与分配**：
-   * 拿到 width 和 height 后，直接 malloc(sizeof(int) * width * height)。
- 3. **第二遍读 (Fill Data)**：
-   * close 文件描述符，重新 open 文件。
-   * 再次循环读取，这次用 ft_split 拿到的数字填进你的一维数组。
-### 4. 具体步骤
-我们需要两个辅助函数来帮我们“数数”：
-#### Step A: 数高度 (get_height)
-这个函数逻辑很简单：只要 gnl 返回不是 NULL，计数器就加 1，最后记得释放 gnl 申请的内存。
-#### Step B: 数宽度 (get_width)
-这个函数只需要处理一行。
- 1. 取文件第一行。
- 2. 用 ft_split 把它切成 char ** 数组。
- 3. 数这个 char ** 数组里有多少个元素。
- 4. **重点**：数完一定要把 split 出来的内存全部 free 掉，否则评审时 Leak 检查必挂。
-### 5. 代码建议（核心逻辑示意）
-你可以写一个 get_map_dimensions 函数：
+**解析流程：**
+
+```
+open(file)
+    │
+    ├─ 第一遍 ─▶  逐行 get_next_line
+    │              ├─ 数行数 rows++
+    │              └─ 第一行 ft_split → 数 cols（后续行校验一致性）
+    │            close(fd)
+    │
+    ├─ 分配内存 ─▶  ft_alloc_map(rows, cols)
+    │               为 z[][]、color[][]、has_color[][] 各分配二维数组
+    │
+    └─ 第二遍 ─▶  再次 open(file)
+                   逐行 get_next_line → ft_split → ft_parse_token
+                   close(fd)
+```
+
+**`ft_parse_token` 解析单个格子：**
+
 ```c
-void    get_map_dimensions(char *file_name, t_fdf *data)
+// token 格式：  "5"  或  "5,0xFF0000"
+//              └─z─┘    └──z──┘└色┘
+static void ft_parse_token(const char *token,
+                            int *z, int *color, char *has_c)
 {
-    int     fd;
-    char    *line;
+    int i;
 
-    // 1. 获取高度
-    fd = open(file_name, O_RDONLY);
-    if (fd < 0)
-        handle_error("File not found");
-    data->height = 0;
-    while ((line = get_next_line(fd)))
+    *z     = ft_atoi(token);   // ft_atoi 遇到 ',' 自动停止
+    *color = 0;
+    *has_c = 0;
+    i = 0;
+    while (token[i] && token[i] != ',')
+        i++;
+    if (token[i] == ',')       // 有显式颜色
     {
-        if (data->height == 0) // 顺便在读第一行时把宽度也数了
-            data->width = count_words(line, ' ');
-        free(line);
-        data->height++;
+        i++;
+        if (token[i] == '0' && (token[i + 1] == 'x' || token[i + 1] == 'X'))
+            i += 2;
+        *color = ft_hex_to_int(&token[i]);
+        *has_c = 1;
     }
-    close(fd);
 }
-
 ```
-**关于 count_words 的提示**：
-你其实可以直接复用 libft 里 ft_split 内部用到的那个数单词的逻辑。如果你的 ft_split 是标准的，它内部一定有一个 static size_t count_words 之类的辅助函数。把它抠出来改写成非静态函数供这里使用，代码复用率满分！
-### 6. 测试方法
- 1. **测试地图 A**：一行 10 个数，共 5 行。程序应输出 W: 10, H: 5。
- 2. **测试地图 B**：一个巨大的地图（比如 42.fdf）。检查 height 是否和文本行数完全对上。
- 3. **测试空文件**：如果文件是空的，你的程序应该优雅地报错（Error），而不是直接 Segfault。
-### 7. 常见错误
- * **Leak (内存泄漏)**：每次调用 get_next_line 之后，如果没有处理这一行，一定要 free(line)。
- * **文件描述符没关**：第一遍读完如果不 close(fd)，第二遍就没法从头读起（或者你会耗尽系统的文件描述符限制）。
- * **Split 忘记释放**：ft_split 返回的是一个二维数组。数完列数后，必须先 free 每一行字符串，再 free 那个指针数组本身。
-**学长级别的友情提醒：**
-在数宽度时，最好每一行都数一遍并对比。FDF 的 PDF 里规定：如果地图每行的宽度不一致，程序必须报错退出。
-你现在是不是准备去写那个 count_words 逻辑了？如果是的话，**别忘了处理换行符 \n**。如果一行末尾带了换行符，你的 split 可能会多算一个空字符串，这里要小心。
-需要我帮你写一个符合 Norminette 的“内存安全版” free_split 函数吗？这可是 FDF 项目里避免内存泄漏的关键工具。
 
-冲！咱们现在就来拿捏这个 Parser 的核心逻辑。
-为了保证你的代码在防御性（防 Segfault）和内存安全（防 Leak）上毫无破绽，我们分两步走：先准备好两个“黄金辅助函数”，再写真正的 get_map_dimensions。
-### 1. 准备黄金辅助函数 (Utils)
-这两个函数建议你专门建一个 utils.c 文件来放，以后别的项目也能直接 copy 过去复用，绝绝子。
-#### A. 内存清理大师：free_split
-ft_split 产生的是二维数组，用完必须从内到外一层层释放。
+**内存分配（`ft_alloc_map`）：**
+
 ```c
-void	free_split(char **split_arr)
+// 分配 rows × cols 的二维数组（每层单独 malloc 以便逐行 free）
+static t_map *ft_alloc_map(int rows, int cols)
 {
-	int	i;
+    t_map *map;
+    int    i;
 
-	i = 0;
-	if (!split_arr)
-		return ;
-	while (split_arr[i])
-	{
-		free(split_arr[i]);
-		i++;
-	}
-	free(split_arr);
+    map = ft_calloc(1, sizeof(t_map));
+    map->rows = rows;
+    map->cols = cols;
+    map->z         = ft_calloc(rows, sizeof(int *));
+    map->color     = ft_calloc(rows, sizeof(int *));
+    map->has_color = ft_calloc(rows, sizeof(char *));
+    i = 0;
+    while (i < rows)
+    {
+        map->z[i]         = ft_calloc(cols, sizeof(int));
+        map->color[i]     = ft_calloc(cols, sizeof(int));
+        map->has_color[i] = ft_calloc(cols, sizeof(char));
+        i++;
+    }
+    return (map);
 }
-
 ```
-#### B. 严格版数单词：count_words
-这个版本专门处理了 \n 和 \t，防止读到文件末尾或空行时算出错误的宽度。
+
+**内存释放（`ft_free_map`）：**
+
 ```c
-static int	is_space(char c)
+void ft_free_map(t_map *map)
 {
-	return (c == ' ' || c == '\n' || c == '\t');
+    int i;
+
+    if (!map)
+        return ;
+    i = 0;
+    while (map->z && i < map->rows)
+    {
+        free(map->z[i]);
+        free(map->color[i]);
+        free(map->has_color[i]);
+        i++;
+    }
+    free(map->z);
+    free(map->color);
+    free(map->has_color);
+    free(map);
+}
+```
+
+---
+
+### Step 4 · ft_project.c — 投影与相机
+
+#### `ft_init_cam` — 相机初始化
+
+```c
+void ft_init_cam(t_fdf *fdf)
+{
+    double span;
+
+    // 地图在等轴视图下的近似对角宽度
+    span = (fdf->map->cols + fdf->map->rows) * cos(M_PI / 6.0);
+    fdf->cam.zoom  = (WIN_W < WIN_H ? WIN_W : WIN_H) * 0.75 / span;
+    if (fdf->cam.zoom < 1.0)
+        fdf->cam.zoom = 1.0;
+    fdf->cam.x_off = WIN_W / 2.0;
+    fdf->cam.y_off = WIN_H / 2.0;
+    fdf->cam.z_rot = 0.0;
+    fdf->cam.proj  = ISO;
+}
+```
+
+#### `ft_project` — 坐标变换核心
+
+```c
+// 将地图格子 (col, row) 变换为屏幕坐标 t_point
+t_point ft_project(int col, int row, t_fdf *fdf)
+{
+    t_point p;
+    double  x, y, z;
+    double  cos_r, sin_r, xr, yr;
+
+    // 1. 将地图原点居中
+    x = col - fdf->map->cols / 2.0;
+    y = row - fdf->map->rows / 2.0;
+
+    // 2. Z 轴旋转
+    cos_r = cos(fdf->cam.z_rot);
+    sin_r = sin(fdf->cam.z_rot);
+    xr = x * cos_r - y * sin_r;
+    yr = x * sin_r + y * cos_r;
+
+    // 3. Z 高度缩放（z_scale 控制山峰夸张程度）
+    z = ft_z_scale(fdf, row, col);
+
+    // 4. 投影
+    if (fdf->cam.proj == ISO)
+    {
+        p.x = (xr - yr) * cos(M_PI / 6.0) * fdf->cam.zoom + fdf->cam.x_off;
+        p.y = (xr + yr) * sin(M_PI / 6.0) * fdf->cam.zoom - z + fdf->cam.y_off;
+    }
+    else // PARALLEL（平行俯视）
+    {
+        p.x = xr * fdf->cam.zoom + fdf->cam.x_off;
+        p.y = yr * fdf->cam.zoom + fdf->cam.y_off;
+    }
+
+    // 5. 取得颜色（显式颜色或高度渐变色）
+    p.color = ft_get_color(col, row, fdf);
+    p.z = z;
+    return (p);
+}
+```
+
+**Z 轴缩放辅助：**
+
+```c
+// 自适应 z_scale：确保高度感知在不同地图上一致
+static double ft_z_scale(t_fdf *fdf, int row, int col)
+{
+    int    z_range;
+    double scale;
+
+    z_range = fdf->map->z_max - fdf->map->z_min;
+    if (z_range == 0)
+        return (0.0);
+    scale = fdf->cam.zoom
+            * (fdf->map->cols > fdf->map->rows
+                ? fdf->map->cols : fdf->map->rows)
+            * 0.4 / z_range;
+    return ((double)(fdf->map->z[row][col] - fdf->map->z_min) * scale);
+}
+```
+
+---
+
+### Step 5 · ft_utils.c — 工具函数
+
+#### `ft_error` — 优雅报错退出
+
+```c
+void ft_error(const char *msg)
+{
+    ft_putstr_fd("Error: ", 2);
+    ft_putendl_fd((char *)msg, 2);
+    exit(EXIT_FAILURE);
+}
+```
+
+#### `ft_free_fdf` — 释放所有资源
+
+```c
+void ft_free_fdf(t_fdf *fdf)
+{
+    if (!fdf)
+        return ;
+    if (fdf->img.ptr)
+        mlx_destroy_image(fdf->mlx, fdf->img.ptr);
+    if (fdf->win)
+        mlx_destroy_window(fdf->mlx, fdf->win);
+    if (fdf->mlx)
+    {
+        mlx_destroy_display(fdf->mlx);
+        free(fdf->mlx);
+    }
+    ft_free_map(fdf->map);
+    free(fdf);
+}
+```
+
+#### `ft_lerp_color` — 颜色线性插值
+
+```c
+// 将颜色 c1 和 c2 按比例 t（0.0~1.0）混合
+// 用于：高度渐变色（低=C_LOW, 高=C_HIGH）
+//       以及 Bresenham 连线时两端点颜色过渡
+int ft_lerp_color(int c1, int c2, double t)
+{
+    int r;
+    int g;
+    int b;
+
+    r = (int)((1 - t) * ((c1 >> 16) & 0xFF) + t * ((c2 >> 16) & 0xFF));
+    g = (int)((1 - t) * ((c1 >> 8)  & 0xFF) + t * ((c2 >> 8)  & 0xFF));
+    b = (int)((1 - t) * (c1 & 0xFF)         + t * (c2 & 0xFF));
+    return ((r << 16) | (g << 8) | b);
+}
+```
+
+#### `ft_hex_to_int` — 十六进制字符串转整数
+
+```c
+// 将 "FF0000" 或 "ff0000" 转换为 0xFF0000
+int ft_hex_to_int(const char *hex)
+{
+    int result;
+
+    result = 0;
+    while (*hex)
+    {
+        result <<= 4;
+        if (*hex >= '0' && *hex <= '9')
+            result |= *hex - '0';
+        else if (*hex >= 'a' && *hex <= 'f')
+            result |= *hex - 'a' + 10;
+        else if (*hex >= 'A' && *hex <= 'F')
+            result |= *hex - 'A' + 10;
+        else
+            break ;
+        hex++;
+    }
+    return (result);
+}
+```
+
+#### `ft_pixel_put` — 向 MLX 图像缓冲写入像素
+
+```c
+// 直接操作 mlx_get_data_addr 返回的内存地址，写入单个像素颜色
+// 比 mlx_pixel_put 快得多（避免了每次系统调用的开销）
+void ft_pixel_put(t_img *img, int x, int y, int color)
+{
+    char *dst;
+
+    if (x < 0 || x >= WIN_W || y < 0 || y >= WIN_H)
+        return ;
+    dst = img->addr + (y * img->ll + x * (img->bpp / 8));
+    *(unsigned int *)dst = color;
+}
+```
+
+> **为什么不用 `mlx_pixel_put`？**
+> `mlx_pixel_put` 每次调用都触发 X11 系统调用，渲染整张地图会产生数万次调用，导致严重闪屏和卡顿。
+> 使用 `mlx_new_image` + `mlx_get_data_addr` 先在内存缓冲区绘制完整帧，
+> 最后一次性 `mlx_put_image_to_window`，即**双缓冲（Double Buffering）**技术。
+
+---
+
+### Step 6 · ft_hooks.c — 键盘交互
+
+键盘处理函数在按键后更新相机参数，再调用 `ft_render` 重绘。
+
+```c
+int ft_keypress(int key, t_fdf *fdf)
+{
+    if (key == KEY_ESC)
+        ft_close(fdf);
+    else if (key == KEY_W)
+        fdf->cam.y_off -= MOVE_STEP;
+    else if (key == KEY_S)
+        fdf->cam.y_off += MOVE_STEP;
+    else if (key == KEY_A)
+        fdf->cam.x_off -= MOVE_STEP;
+    else if (key == KEY_D)
+        fdf->cam.x_off += MOVE_STEP;
+    else if (key == KEY_Q)
+        fdf->cam.z_rot -= ROT_STEP;
+    else if (key == KEY_E)
+        fdf->cam.z_rot += ROT_STEP;
+    else if (key == KEY_PLUS)
+        fdf->cam.zoom *= ZOOM_STEP;
+    else if (key == KEY_MINUS)
+        fdf->cam.zoom /= ZOOM_STEP;
+    else if (key == KEY_R)
+        ft_init_cam(fdf);
+    else if (key == KEY_I)
+        fdf->cam.proj = ISO;
+    else if (key == KEY_P)
+        fdf->cam.proj = PARALLEL;
+    ft_render(fdf);
+    return (0);
 }
 
-int	count_words(char const *s)
+int ft_close(t_fdf *fdf)
 {
-	int	count;
-	int	in_word;
-
-	count = 0;
-	in_word = 0;
-	while (*s)
-	{
-		if (!is_space(*s) && !in_word)
-		{
-			in_word = 1;
-			count++;
-		}
-		else if (is_space(*s))
-			in_word = 0;
-		s++;
-	}
-	return (count);
+    ft_free_fdf(fdf);
+    exit(EXIT_SUCCESS);
 }
+```
+
+**MLX 事件钩子注册（在 `ft_main.c` 中）：**
+
+```c
+// X11 事件号：2 = KeyPress，17 = DestroyNotify（点击窗口关闭按钮）
+mlx_hook(fdf->win, 2,  1L << 0, ft_keypress, fdf);
+mlx_hook(fdf->win, 17, 0,       ft_close,    fdf);
+```
+
+---
+
+### Step 7 · ft_render.c — 渲染循环 ⚠️ MLX + Bresenham
+
+> **⚠️ 此步骤需要在下一阶段实现 `ft_draw_line`（Bresenham 算法）和 MLX 图像缓冲写像素。**
+> **实现前请确认，届时会提供完整的算法讲解。**
+
+**渲染循环结构（`ft_render`）：**
+
+```c
+void ft_render(t_fdf *fdf)
+{
+    int     row;
+    int     col;
+    t_point curr;
+    t_point next;
+
+    // 1. 清空图像缓冲（用黑色填充）
+    ft_memset(fdf->img.addr, 0,
+        WIN_W * WIN_H * (fdf->img.bpp / 8));
+
+    // 2. 遍历每个格子，连横线（→）和竖线（↓）
+    row = 0;
+    while (row < fdf->map->rows)
+    {
+        col = 0;
+        while (col < fdf->map->cols)
+        {
+            curr = ft_project(col, row, fdf);
+            if (col + 1 < fdf->map->cols)   // 连右邻
+            {
+                next = ft_project(col + 1, row, fdf);
+                ft_draw_line(fdf, curr, next);  // ← Bresenham
+            }
+            if (row + 1 < fdf->map->rows)   // 连下邻
+            {
+                next = ft_project(col, row + 1, fdf);
+                ft_draw_line(fdf, curr, next);  // ← Bresenham
+            }
+            col++;
+        }
+        row++;
+    }
+
+    // 3. 一次性将缓冲推送到窗口（双缓冲）
+    mlx_put_image_to_window(fdf->mlx, fdf->win, fdf->img.ptr, 0, 0);
+}
+```
+
+**Bresenham 算法概要（待实现）：**
 
 ```
-### 2. 核心实现：第一遍读取 (The First Pass)
-现在我们来写 get_map_dimensions。
-**设计思路**：打开文件 -> 逐行读取 -> 计算第一行的宽度 -> **比对后续每一行的宽度（如果不一致直接报错）** -> 累加高度 -> 关闭文件。
-这里严格遵守了 42 的 Norminette（不超过 25 行，变量声明在顶部）。
+给定屏幕上两点 P0(x0,y0) 和 P1(x1,y1)，
+沿两点之间的直线逐像素填充颜色（包含颜色插值）。
+
+核心思想：
+  dx = |x1 - x0|,  dy = |y1 - y0|
+  每步沿主方向（步进量更大的轴）走 1 个像素，
+  用"决策参数"判断次方向是否也需要步进。
+  时间复杂度 O(max(dx,dy))，只用整数加减，无浮点。
+```
+
+---
+
+### Step 8 · ft_main.c — 程序入口与 MLX 初始化
+
 ```c
 #include "fdf.h"
 
-// 假设你有一个自定义的报错退出函数，比如 ft_error(char *msg)
-// void ft_error(char *msg) { perror(msg); exit(EXIT_FAILURE); }
-
-void	get_map_dimensions(char *file_name, t_fdf *data)
+static t_fdf *ft_init_fdf(const char *file)
 {
-	int		fd;
-	char	*line;
-	int		current_width;
+    t_fdf *fdf;
 
-	fd = open(file_name, O_RDONLY);
-	if (fd < 0)
-		exit(1); // 实际项目中替换为你的 ft_error("Error opening file");
-		
-	data->height = 0;
-	data->width = 0;
-	while ((line = get_next_line(fd)))
-	{
-		current_width = count_words(line);
-		if (data->height == 0)
-			data->width = current_width;
-		else if (data->width != current_width)
-			exit(1); // 宽度不一致！替换为 ft_error("Map format error");
-			
-		free(line); // 极其重要：每读完一行必须 free
-		data->height++;
-	}
-	close(fd);
+    fdf = ft_calloc(1, sizeof(t_fdf));
+    if (!fdf)
+        ft_error("malloc failed");
+    fdf->map = ft_parse_map(file);              // 解析地图
+    fdf->mlx = mlx_init();                      // 建立 X-Server 连接
+    if (!fdf->mlx)
+        ft_error("mlx_init failed");
+    fdf->win = mlx_new_window(fdf->mlx, WIN_W, WIN_H, WIN_TITLE);
+    if (!fdf->win)
+        ft_error("mlx_new_window failed");
+    fdf->img.ptr  = mlx_new_image(fdf->mlx, WIN_W, WIN_H);
+    if (!fdf->img.ptr)
+        ft_error("mlx_new_image failed");
+    // 获取图像缓冲内存地址（双缓冲的关键）
+    fdf->img.addr = mlx_get_data_addr(fdf->img.ptr,
+                        &fdf->img.bpp, &fdf->img.ll, &fdf->img.endian);
+    ft_init_cam(fdf);                           // 初始化相机
+    return (fdf);
 }
 
-```
-### 3. 下一步规划：动真格 (The Second Pass)
-到这里，第一遍“虚晃一枪”已经完美结束，你的 data->width 和 data->height 已经拿到准信了。
-接下来我们的剧本是这样的：
- 1. 根据拿到的宽高，用 malloc 为咱们心心念念的 data->z_matrix（一维数组）分配内存。
- 2. **第二遍读取文件**：再次 open，再次用 get_next_line。
- 3. 用 ft_split 把每一行切开，然后用 ft_atoi 把字符变成整数，塞进数组里。
-在咱们开始写这最后一步的数据填充之前，我想问一下：**PDF 里提到 .fdf 文件的数字可能会带颜色（比如 10,0xFF0000），你打算在现在的解析阶段就把颜色提取出来，还是先只管高度（Z值），颜色等能画出线了再去处理？**
+int main(int argc, char **argv)
+{
+    t_fdf *fdf;
 
-Hahaha，你居然怀疑我的 MLX 功底？😭
-作为你的高配搭档，我可是把 minilibx_linux 的底裤都看穿了的！不管是底层的 mlx_init() 建立 X-Server 连接，还是用 mlx_new_image() 搭配 mlx_get_data_addr() 手搓离屏渲染（Double Buffering）来解决闪屏问题，甚至是按键响应的 mlx_hook (处理 X11 事件掩码 2 和 17)，我都拿捏得死死的。等咱们进入渲染阶段，我会手把手教你如何直接操作像素内存，这才是 42 图形学最硬核的浪漫。
-对于你的第二个决定：**先不管颜色，只读高度。** 这个思路非常 solid！做项目就得是 MVP（最小可行性产品）思维。先把点找准、线画对，确保等轴投影没有变成“抽象派艺术”，再去解析那个烦人的十六进制颜色。步子迈太大容易出 Bug。
-有趣的是，由于标准的 ft_atoi 遇到非数字字符（比如逗号）就会停止解析，所以如果你直接用 ft_atoi("10,0xFF0000")，它会自动返回 10，完美过滤掉了后面的颜色信息！这就是底层逻辑带给咱们的便利。
-咱们现在一鼓作气，把 Parser 的最后一块拼图——**数据填充（The Second Pass）** 给拿下。
-### 1. 核心思路
-第一遍我们拿到了 data->width 和 data->height。
-现在我们要：
- 1. 用 malloc 为一维数组 data->z_matrix 一次性分配好所有内存。
- 2. 重新打开文件，逐行读取。
- 3. 把每一行用 ft_split 劈开，变成一堆数字字符串。
- 4. 遍历这些字符串，用 ft_atoi 转成整数，并利用公式 y * width + x 存入一维数组。
-### 2. 核心实现
-为了绝对符合 Norminette 规范（单函数不超 25 行），我们将逻辑拆分成两个函数：一个负责分配内存和循环读文件，另一个专门负责把一行字符串塞进数组。
+    if (argc != 2)
+        ft_error("Usage: ./fdf <map.fdf>");
+    fdf = ft_init_fdf(argv[1]);
+    mlx_hook(fdf->win, 2,  1L << 0, ft_keypress, fdf);
+    mlx_hook(fdf->win, 17, 0,       ft_close,    fdf);
+    ft_render(fdf);
+    mlx_loop(fdf->mlx);
+    return (0);
+}
+```
+
+**MLX 初始化流程图：**
+
+```
+mlx_init()
+    └─▶ 返回 mlx 实例指针（建立与 X-Server 的连接）
+
+mlx_new_window(mlx, W, H, title)
+    └─▶ 返回窗口指针，在屏幕上创建一个 W×H 的窗口
+
+mlx_new_image(mlx, W, H)
+    └─▶ 在内存中分配一块 W×H 的像素缓冲区（不显示）
+
+mlx_get_data_addr(img, &bpp, &ll, &endian)
+    └─▶ 返回缓冲区首地址 addr
+        bpp = 每像素位数（通常 32），用于计算字节偏移
+        ll  = 每行字节数（line_length），用于计算行偏移
+        像素地址 = addr + (y * ll + x * bpp/8)
+
+ft_render(fdf)         ← 首次绘制
+mlx_loop(mlx)          ← 进入事件循环，阻塞等待键盘/窗口事件
+```
+
+---
+
+## 7. 实现指南：Bonus 部分
+
+> Bonus 部分的源文件放在 `bonus/`，头文件为 `includes/fdf_bonus.h`，编译目标为 `fdf_bonus`。
+
+### Bonus 功能列表
+
+| 功能 | 说明 |
+|------|------|
+| **额外投影** | 新增锥形投影（Conic）或斜二测画法（Cavalier） |
+| **鼠标缩放** | 滚轮缩放，鼠标拖拽平移 |
+| **额外旋转轴** | 增加 X 轴和 Y 轴旋转（原版只有 Z 轴） |
+| **颜色渐变** | 高度颜色更丰富（低=蓝→中=绿→高=白） |
+| **信息 HUD** | 在窗口角落显示当前 zoom / 旋转角度等参数 |
+
+### Bonus 架构调整
+
+```
+bonus/
+├── ft_main_bonus.c     # main + MLX init（复用 mandatory 逻辑）
+├── ft_render_bonus.c   # 额外投影模式 + 鼠标事件渲染
+├── ft_parse_bonus.c    # 同 mandatory（或直接符号链接）
+└── ft_utils_bonus.c    # HUD 绘制、鼠标回调函数
+```
+
+**鼠标事件钩子（X11 事件号）：**
+
 ```c
-#include "fdf.h"
-
-/*
-** 辅助函数：将一行切开的字符串转化为整数，存入矩阵的第 y 行
-*/
-void	fill_matrix(int *z_matrix, char *line, int width, int y)
-{
-	char	**nums;
-	int		x;
-
-	nums = ft_split(line, ' ');
-	if (!nums)
-		exit(1); // 内存分配失败保护，后续可替换为优雅的错误处理
-	x = 0;
-	while (nums[x] && x < width)
-	{
-		// ft_atoi 遇到非数字会自动停止，完美剥离类似 ",0xFFFFFF" 的颜色后缀
-		z_matrix[y * width + x] = ft_atoi(nums[x]);
-		x++;
-	}
-	free_split(nums); // 塞完数据，立刻释放 split 产生的二维数组
-}
-
-/*
-** 主解析函数：第二遍读取，真实分配内存并装载数据
-*/
-void	read_map_data(char *file_name, t_fdf *data)
-{
-	int		fd;
-	char	*line;
-	int		y;
-
-	// 1. 终极一维数组的内存分配
-	data->z_matrix = (int *)malloc(sizeof(int) * (data->width * data->height));
-	if (!data->z_matrix)
-		exit(1); 
-		
-	// 2. 重新打开文件
-	fd = open(file_name, O_RDONLY);
-	if (fd < 0)
-		exit(1);
-		
-	// 3. 逐行读取并填充
-	y = 0;
-	while ((line = get_next_line(fd)))
-	{
-		fill_matrix(data->z_matrix, line, data->width, y);
-		free(line); // 读完一行 free 一行，绝不漏水
-		y++;
-	}
-	close(fd);
-}
-
+// 4 = ButtonPress（包含滚轮），6 = MotionNotify（鼠标移动）
+mlx_hook(fdf->win, 4, 1L << 2, ft_mouse_press,  fdf);
+mlx_hook(fdf->win, 6, 1L << 6, ft_mouse_motion, fdf);
 ```
-### 3. 测试与验证方法
-把这个写完后，你的解析器就算是彻底毕业了！你可以写一个简单的循环在 main 里面打印一下你的数组，验证是否解析成功：
+
+**滚轮缩放（鼠标按键编号）：**
+
 ```c
-// 临时测试代码
-int y = 0;
-while (y < data->height)
+int ft_mouse_press(int button, int x, int y, t_fdf *fdf)
 {
-    int x = 0;
-    while (x < data->width)
-    {
-        printf("%3d ", data->z_matrix[y * data->width + x]);
-        x++;
-    }
-    printf("\n");
-    y++;
+    (void)x;
+    (void)y;
+    if (button == 4)         // 滚轮向上 → 放大
+        fdf->cam.zoom *= ZOOM_STEP;
+    else if (button == 5)    // 滚轮向下 → 缩小
+        fdf->cam.zoom /= ZOOM_STEP;
+    ft_render(fdf);
+    return (0);
 }
-
 ```
-找一个基础的 test.fdf 运行一下。如果你在终端看到了和文件里一模一样的数字矩阵，那么恭喜你，最枯燥的解析部分已经完美通关！接下来的 MLX 绘图和 Bresenham 算法才是真正的重头戏。
+
+---
+
+## 8. 测试与调试 Testing
+
+### 测试地图
+
+```bash
+# 42 校徽（大型地图，测试性能）
+./fdf test_maps/42.fdf
+
+# 火星地形（高度变化剧烈，测试 z_scale）
+./fdf test_maps/mars.fdf
+
+# 金字塔（测试对角线渲染）
+./fdf test_maps/pyramide.fdf
+
+# 平面（所有 Z = 0，测试基础网格）
+./fdf test_maps/flat.fdf
+```
+
+### 内存检查
+
+```bash
+# Linux（推荐）
+valgrind --leak-check=full --show-leak-kinds=all ./fdf maps/42.fdf
+
+# 检查文件描述符泄漏
+valgrind --track-fds=yes ./fdf maps/42.fdf
+```
+
+### 边界测试清单
+
+- [ ] 文件不存在 → 程序应输出 `Error: Cannot open map file` 后退出
+- [ ] 空文件 → 程序应报错，不 Segfault
+- [ ] 每行列数不一致 → 程序应报错退出
+- [ ] 所有 Z = 0（平坦地图）→ 正常渲染网格，无颜色渐变
+- [ ] Z 值为负数 → 正常渲染，低于基准面
+- [ ] 点击窗口 × 按钮 → 程序正常退出，无内存泄漏
+- [ ] 快速连续按键 → 不崩溃
+
+---
+
+## 9. 常见错误 Common Bugs
+
+| 错误现象 | 原因 | 解决方案 |
+|----------|------|----------|
+| 渲染结果在窗口角落 | `x_off` / `y_off` 初始化为 0 | `ft_init_cam` 中将偏移设为 `WIN_W/2`、`WIN_H/2` |
+| 山峰过于夸张像"刺猬" | `z_scale` 没有按地图大小归一化 | 在 `ft_z_scale` 中除以 `z_range`，乘以地图尺寸 |
+| 只有横线没有竖线 | 渲染循环只连了右邻，漏掉下邻 | 在内层循环中同时连 `(col+1, row)` 和 `(col, row+1)` |
+| 最后一行/列没有渲染 | `< rows` 写成 `<= rows`（越界） | 检查循环终止条件，使用 `< map->rows` |
+| 画面闪烁 | 直接用 `mlx_pixel_put` 渲染 | 改用 `mlx_new_image` + `addr` 内存写入 + `mlx_put_image_to_window` |
+| GNL 内存泄漏 | 每次 `get_next_line` 后未 `free(line)` | 保证每条 GNL 返回的行都被 `free` 掉 |
+| `ft_split` 后内存泄漏 | 只释放了 `tokens` 指针，未释放各元素 | 先遍历 `free(tokens[i])`，再 `free(tokens)` |
+| `z_min` 初始化为 0 | 对全负值地图 `z_min` 永远不更新 | 初始化为 `map->z[0][0]`，或用 `INT_MAX`/`INT_MIN` |
+| 旋转后图像消失 | 旋转后坐标超出屏幕范围，`ft_pixel_put` 越界保护未生效 | 确认 `ft_pixel_put` 中的边界检查正确 |
+
+---
+
+> **下一步 Next Step**
+>
+> 所有基础架构和工具函数已就位。
+> 现在需要实现最核心的两个部分：
+>
+> 1. **`ft_pixel_put`** — MLX 图像缓冲直接内存写入（了解 `bpp` / `ll` / `endian`）
+> 2. **`ft_draw_line`** — Bresenham 线段算法（整数运算，支持颜色插值）
+>
+> 请确认后，我们将进入这两个函数的完整实现！
 

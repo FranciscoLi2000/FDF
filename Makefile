@@ -4,7 +4,7 @@ BONUS_NAME	= fdf_bonus
 CC		= cc
 CFLAGS	= -Wall -Wextra -Werror
 
-INCLUDES	= -I includes -I minilibx_linux -I libft
+INCLUDES	= -I includes -I minilibx_linux -I libft/includes
 LIBS		= -L minilibx_linux -lmlx_Linux -L libft -lft -lXext -lX11 -lm -lz
 
 SRC_DIR		= src
