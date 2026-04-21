@@ -1,16 +1,74 @@
 #include "fdf.h"
 
+/*
+** ft_line_init — populate a t_line from two projected points.
+**
+** Bresenham works entirely in integer screen pixels.  We round
+** p0/p1 coordinates here so the rest of the algorithm stays
+** branch-free and portable.
+*/
+static t_line	ft_line_init(t_point p0, t_point p1)
+{
+	t_line	l;
+
+	l.x = (int)round(p0.x);
+	l.y = (int)round(p0.y);
+	l.dx = abs((int)round(p1.x) - l.x);
+	l.dy = abs((int)round(p1.y) - l.y);
+	l.sx = (p1.x > p0.x) ? 1 : -1;
+	l.sy = (p1.y > p0.y) ? 1 : -1;
+	l.err = l.dx - l.dy;
+	l.steps = (l.dx > l.dy) ? l.dx : l.dy;
+	l.c0 = p0.color;
+	l.c1 = p1.color;
+	return (l);
+}
+
+/*
+** ft_draw_line — Bresenham line algorithm with linear color interpolation.
+**
+** Algorithm summary
+** ─────────────────
+**   Given two screen-space integers (x0,y0) and (x1,y1) the algorithm
+**   avoids floating-point by maintaining an error accumulator `err`.
+**
+**   Each iteration:
+**     1. Paint current pixel with interpolated color.
+**     2. Double the error term and decide which axis to advance:
+**        • if 2*err > -dy  → step along X, subtract dy from err
+**        • if 2*err <  dx  → step along Y, add    dx to err
+**   Both conditions can trigger in the same iteration (diagonal step).
+**
+**   Color at step i = lerp(c0, c1, i / total_steps).
+*/
 void	ft_draw_line(t_fdf *fdf, t_point p0, t_point p1)
 {
-	/*
-	** ⚠️  TODO — Bresenham's line algorithm
-	** This function will be implemented in the next step.
-	** It draws a straight line from p0 to p1 on the MLX image buffer,
-	** interpolating the color between p0.color and p1.color.
-	*/
-	(void)fdf;
-	(void)p0;
-	(void)p1;
+	t_line	l;
+	int		e2;
+	int		i;
+	double	t;
+
+	l = ft_line_init(p0, p1);
+	i = 0;
+	while (1)
+	{
+		t = (l.steps > 0) ? (double)i / (double)l.steps : 0.0;
+		ft_pixel_put(&fdf->img, l.x, l.y, ft_lerp_color(l.c0, l.c1, t));
+		if (l.x == (int)round(p1.x) && l.y == (int)round(p1.y))
+			break ;
+		e2 = 2 * l.err;
+		if (e2 > -l.dy)
+		{
+			l.err -= l.dy;
+			l.x += l.sx;
+		}
+		if (e2 < l.dx)
+		{
+			l.err += l.dx;
+			l.y += l.sy;
+		}
+		i++;
+	}
 }
 
 void	ft_render(t_fdf *fdf)

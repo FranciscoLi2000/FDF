@@ -19,7 +19,7 @@
    - [Step 4 · ft_project.c — 投影与相机](#step-4--ft_projectc--投影与相机)
    - [Step 5 · ft_utils.c — 工具函数](#step-5--ft_utilsc--工具函数)
    - [Step 6 · ft_hooks.c — 键盘交互](#step-6--ft_hooksc--键盘交互)
-   - [Step 7 · ft_render.c — 渲染循环 ⚠️ MLX + Bresenham](#step-7--ft_renderc--渲染循环--mlx--bresenham)
+   - [Step 7 · ft_render.c — MLX 图像缓冲 + Bresenham 算法](#step-7--ft_renderc--mlx-图像缓冲--bresenham-算法)
    - [Step 8 · ft_main.c — 程序入口与 MLX 初始化](#step-8--ft_mainc--程序入口与-mlx-初始化)
 7. [实现指南：Bonus 部分](#7-实现指南bonus-部分)
 8. [测试与调试 Testing](#8-测试与调试-testing)
@@ -789,26 +789,270 @@ mlx_hook(fdf->win, 17, 0,       ft_close,    fdf);
 
 ---
 
-### Step 7 · ft_render.c — 渲染循环 ⚠️ MLX + Bresenham
+### Step 7 · ft_render.c — MLX 图像缓冲 + Bresenham 算法
 
-> **⚠️ 此步骤需要在下一阶段实现 `ft_draw_line`（Bresenham 算法）和 MLX 图像缓冲写像素。**
-> **实现前请确认，届时会提供完整的算法讲解。**
+这是整个 FdF 项目**最核心**的一步，分为两个紧密配合的部分：
 
-**渲染循环结构（`ft_render`）：**
+#### 7.1 MLX 图像缓冲（Double Buffering）
+
+**为什么不能用 `mlx_pixel_put`？**
+
+`mlx_pixel_put` 每次调用都发起一次 X11 系统调用。
+一张 42×42 的地图有 `42×42×2 ≈ 3528` 条边，每条边平均数十个像素，
+合计数万次系统调用 → **严重闪屏 + 卡死**。
+
+正确做法是**双缓冲（Double Buffering）**：
+
+```
+┌──────────────────────────────────────────────────┐
+│  MLX 内存中的 Image Buffer（看不见的"后台画布"）   │
+│  ft_pixel_put() 在这里一次写入所有像素            │
+└─────────────────────┬────────────────────────────┘
+                      │ mlx_put_image_to_window()
+                      │ 一帧完成后，整张 bitmap 一次性复制到屏幕
+                      ▼
+┌──────────────────────────────────────────────────┐
+│              屏幕窗口（用户可见）                  │
+└──────────────────────────────────────────────────┘
+```
+
+**MLX Image Buffer 关键 API：**
 
 ```c
-void ft_render(t_fdf *fdf)
+// 1. 在内存中开辟一块 WIN_W × WIN_H 的像素缓冲区
+fdf->img.ptr  = mlx_new_image(fdf->mlx, WIN_W, WIN_H);
+
+// 2. 获取缓冲区的原始内存地址和元数据
+fdf->img.addr = mlx_get_data_addr(
+    fdf->img.ptr,
+    &fdf->img.bpp,     // bits per pixel，通常 = 32
+    &fdf->img.ll,      // line_length：每行占多少字节
+    &fdf->img.endian   // 字节序（0=小端，1=大端）
+);
+```
+
+**像素寻址公式（`ft_pixel_put` 的核心）：**
+
+```
+每个像素 = 4 字节 (bpp=32)
+第 (x, y) 个像素的内存地址：
+    addr + (y * line_length + x * bytes_per_pixel)
+         = addr + (y * ll    + x * bpp/8)
+
+示例：WIN_W=1280, bpp=32, ll=5120
+  像素 (3, 7) 的地址 = addr + (7 * 5120 + 3 * 4) = addr + 35852
+```
+
+**完整实现 `ft_pixel_put`（已在 `ft_utils.c` 中）：**
+
+```c
+void	ft_pixel_put(t_img *img, int x, int y, int color)
+{
+    char	*dst;
+
+    // 边界保护：超出屏幕范围直接丢弃，防止缓冲区越界
+    if (x < 0 || x >= WIN_W || y < 0 || y >= WIN_H)
+        return ;
+    dst = img->addr + (y * img->ll + x * (img->bpp / 8));
+    // 将 color（0xRRGGBB 格式整数）直接写入内存
+    *(unsigned int *)dst = color;
+}
+```
+
+> **endian 说明：**
+> 绝大多数 Linux x86-64 系统是小端，`endian=0`，
+> `color` 以 `0x00RRGGBB` 写入即可正确显示。
+> 如果在大端系统上颜色显示异常，需要做字节翻转。
+
+---
+
+#### 7.2 Bresenham 直线算法（`ft_draw_line`）
+
+##### 算法原理
+
+Bresenham 算法（1962年由 Jack Bresenham 提出）是绘制屏幕直线的**经典整数算法**，
+全程只用整数加减法，无浮点运算，效率极高。
+
+**核心思想：**
+
+给定两端点 P₀(x₀,y₀) 和 P₁(x₁,y₁)，假设 dx ≥ dy（低斜率情形）：
+
+```
+每步沿 X 轴走 1 个像素（主方向），
+维护一个"误差累加器" err，
+用它判断 Y 轴是否在这一步也需要走 1 个像素。
+
+初始：err = dx - dy
+
+每步：
+  e2 = 2 * err
+  if e2 > -dy  →  err -= dy;  x += sx   （沿 X 步进）
+  if e2 <  dx  →  err += dx;  y += sy   （沿 Y 步进）
+
+注意：两个条件可以同时触发（产生对角步进），这是算法正确性的关键。
+```
+
+**各方向（8个象限）通用版：**
+
+通过动态选择 `sx = sign(dx)`、`sy = sign(dy)` 并把 `dx/dy` 取绝对值，
+同一套代码可以处理所有角度的线段：
+
+```
+象限示意（以起点为原点）：
+    ↑ -y
+    │
+    │  dx<0,dy<0    dx>0,dy<0
+    │       ╲   ↑  ╱
+    │        ╲  │ ╱
+────┼──────────\│/──────────▶ +x
+    │          /│╲
+    │         ╱  │  ╲
+    │  dx<0,dy>0    dx>0,dy>0
+    │
+    ↓ +y
+
+sx = (p1.x > p0.x) ? +1 : -1
+sy = (p1.y > p0.y) ? +1 : -1
+```
+
+##### 颜色插值
+
+连线时从 `p0.color` 渐变到 `p1.color`，公式：
+
+```
+步骤总数  steps = max(|dx|, |dy|)
+当前步骤  i     = 0, 1, 2, ..., steps
+混合比例  t     = i / steps          (0.0 → 1.0)
+当前颜色  color = lerp(c0, c1, t)
+
+lerp(c0, c1, t):
+  R = (1-t)*R0 + t*R1
+  G = (1-t)*G0 + t*G1
+  B = (1-t)*B0 + t*B1
+```
+
+##### 辅助结构体 `t_line`（在 `fdf.h` 中定义）
+
+```c
+// 将 Bresenham 所需的所有状态打包进结构体
+// 使 ft_draw_line 内的每步操作都清晰可读
+typedef struct s_line
+{
+    int     x;      // 当前像素 X
+    int     y;      // 当前像素 Y
+    int     dx;     // |x1 - x0|
+    int     dy;     // |y1 - y0|
+    int     sx;     // X 步进方向：+1 或 -1
+    int     sy;     // Y 步进方向：+1 或 -1
+    int     err;    // 误差累加器，初始值 = dx - dy
+    int     steps;  // 总步数 = max(dx, dy)，用于颜色插值分母
+    int     c0;     // 起点颜色
+    int     c1;     // 终点颜色
+}   t_line;
+```
+
+##### 完整实现（`ft_render.c`）
+
+```c
+/*
+** ft_line_init — 从两个投影点初始化 t_line。
+** 用 round() 将 double 屏幕坐标转为整数像素，
+** 保证 Bresenham 的纯整数运算路径。
+*/
+static t_line	ft_line_init(t_point p0, t_point p1)
+{
+    t_line  l;
+
+    l.x     = (int)round(p0.x);
+    l.y     = (int)round(p0.y);
+    l.dx    = abs((int)round(p1.x) - l.x);
+    l.dy    = abs((int)round(p1.y) - l.y);
+    l.sx    = (p1.x > p0.x) ? 1 : -1;
+    l.sy    = (p1.y > p0.y) ? 1 : -1;
+    l.err   = l.dx - l.dy;           // 初始误差 = dx - dy
+    l.steps = (l.dx > l.dy) ? l.dx : l.dy;
+    l.c0    = p0.color;
+    l.c1    = p1.color;
+    return (l);
+}
+
+/*
+** ft_draw_line — Bresenham 直线算法 + 线性颜色插值
+**
+** 每次循环：
+**   1. 用当前步骤比例 t = i/steps 计算插值颜色，写入像素
+**   2. 检查终止条件（到达终点）
+**   3. e2 = 2*err
+**      if e2 > -dy  →  err -= dy;  x += sx   (沿主轴步进)
+**      if e2 <  dx  →  err += dx;  y += sy   (沿次轴步进)
+**   两个 if 均不用 else：对角步进时两者都执行
+*/
+void	ft_draw_line(t_fdf *fdf, t_point p0, t_point p1)
+{
+    t_line  l;
+    int     e2;
+    int     i;
+    double  t;
+
+    l = ft_line_init(p0, p1);
+    i = 0;
+    while (1)
+    {
+        t = (l.steps > 0) ? (double)i / (double)l.steps : 0.0;
+        ft_pixel_put(&fdf->img, l.x, l.y, ft_lerp_color(l.c0, l.c1, t));
+        if (l.x == (int)round(p1.x) && l.y == (int)round(p1.y))
+            break ;
+        e2 = 2 * l.err;
+        if (e2 > -l.dy)          // 沿 X 步进
+        {
+            l.err -= l.dy;
+            l.x   += l.sx;
+        }
+        if (e2 < l.dx)           // 沿 Y 步进
+        {
+            l.err += l.dx;
+            l.y   += l.sy;
+        }
+        i++;
+    }
+}
+```
+
+##### 逐步追踪示例
+
+```
+绘制从 P0(0,0) 到 P1(4,2) 的线段：
+  dx=4, dy=2, sx=+1, sy=+1, err=2, steps=4
+
+步骤  (x,y)  err   e2   e2>-dy?  e2<dx?   操作
+  0   (0,0)   2     4    yes(4>-2) yes(4<4?) no → err-=2, x+=1  → err=0
+  1   (1,0)   0     0    no(0>-2)  yes(0<4) → err+=4, y+=1      → err=4
+      → 等等，e2=0: 0>-2? yes → err-=2=−2, x+=1
+                    0<4?  yes → err+=4=2,  y+=1
+  2   (2,1)   2     4    yes → err-=2=0, x+=1
+              0     0    yes(0>-2) yes(0<4) → err+=4=4, y+=1
+  3   (3,2)   4     8    yes → err-=2=2, x+=1
+  4   (4,2) ← 到达终点，结束
+
+最终路径：(0,0)→(1,0)→(2,1)→(3,1)→(4,2) ✓
+```
+
+---
+
+#### 7.3 渲染循环（`ft_render`）
+
+```c
+void	ft_render(t_fdf *fdf)
 {
     int     row;
     int     col;
     t_point curr;
     t_point next;
 
-    // 1. 清空图像缓冲（用黑色填充）
-    ft_memset(fdf->img.addr, 0,
-        WIN_W * WIN_H * (fdf->img.bpp / 8));
+    // 1. 用黑色清空整个图像缓冲（ft_bzero 比 ft_memset 更语义明确）
+    ft_bzero(fdf->img.addr, WIN_W * WIN_H * (fdf->img.bpp / 8));
 
-    // 2. 遍历每个格子，连横线（→）和竖线（↓）
+    // 2. 遍历所有格子，每个格子向右（→）和向下（↓）各连一条线
     row = 0;
     while (row < fdf->map->rows)
     {
@@ -816,37 +1060,37 @@ void ft_render(t_fdf *fdf)
         while (col < fdf->map->cols)
         {
             curr = ft_project(col, row, fdf);
-            if (col + 1 < fdf->map->cols)   // 连右邻
+            if (col + 1 < fdf->map->cols)       // 连右邻居
             {
                 next = ft_project(col + 1, row, fdf);
-                ft_draw_line(fdf, curr, next);  // ← Bresenham
+                ft_draw_line(fdf, curr, next);
             }
-            if (row + 1 < fdf->map->rows)   // 连下邻
+            if (row + 1 < fdf->map->rows)       // 连下邻居
             {
                 next = ft_project(col, row + 1, fdf);
-                ft_draw_line(fdf, curr, next);  // ← Bresenham
+                ft_draw_line(fdf, curr, next);
             }
             col++;
         }
         row++;
     }
 
-    // 3. 一次性将缓冲推送到窗口（双缓冲）
+    // 3. 一帧画完，整张 bitmap 一次性推送到窗口（无闪屏）
     mlx_put_image_to_window(fdf->mlx, fdf->win, fdf->img.ptr, 0, 0);
 }
 ```
 
-**Bresenham 算法概要（待实现）：**
+**为什么只连右邻和下邻，而不连所有 4 个方向？**
 
 ```
-给定屏幕上两点 P0(x0,y0) 和 P1(x1,y1)，
-沿两点之间的直线逐像素填充颜色（包含颜色插值）。
+格子 (col, row) 只负责连：
+  → (col+1, row)   右邻
+  ↓ (col, row+1)   下邻
 
-核心思想：
-  dx = |x1 - x0|,  dy = |y1 - y0|
-  每步沿主方向（步进量更大的轴）走 1 个像素，
-  用"决策参数"判断次方向是否也需要步进。
-  时间复杂度 O(max(dx,dy))，只用整数加减，无浮点。
+这样每条边只被画一次，不重复：
+  (0,0)→(1,0) 由 (0,0) 画
+  (1,0)→(0,0) 不需要，因为 (1,0) 已经连了 (2,0)
+边缘格子（最后一列/最后一行）的条件 col+1 < cols / row+1 < rows 自动排除越界。
 ```
 
 ---
@@ -1025,13 +1269,13 @@ valgrind --track-fds=yes ./fdf maps/42.fdf
 
 ---
 
-> **下一步 Next Step**
+---
+
+> **✅ 强制部分全部完成！**
 >
-> 所有基础架构和工具函数已就位。
-> 现在需要实现最核心的两个部分：
+> 所有 8 个步骤均已实现并可编译：
+> - MLX 双缓冲图像渲染（`ft_pixel_put` 直接写入内存地址）
+> - Bresenham 直线算法（`ft_draw_line` 含线性颜色插值）
 >
-> 1. **`ft_pixel_put`** — MLX 图像缓冲直接内存写入（了解 `bpp` / `ll` / `endian`）
-> 2. **`ft_draw_line`** — Bresenham 线段算法（整数运算，支持颜色插值）
->
-> 请确认后，我们将进入这两个函数的完整实现！
+> 下一步：**Bonus 部分** — 鼠标缩放、额外投影、颜色渐变 HUD。
 

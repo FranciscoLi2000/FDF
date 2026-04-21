@@ -86,6 +86,21 @@ typedef struct s_fdf
 	t_cam	cam;
 }	t_fdf;
 
+/* Helper used only inside ft_draw_line (Bresenham state) */
+typedef struct s_line
+{
+	int		x;
+	int		y;
+	int		dx;
+	int		dy;
+	int		sx;
+	int		sy;
+	int		err;
+	int		steps;
+	int		c0;
+	int		c1;
+}	t_line;
+
 /* ft_parse.c */
 t_map	*ft_parse_map(const char *file);
 void	ft_free_map(t_map *map);
