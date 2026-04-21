@@ -156,3 +156,256 @@ typedef struct s_fdf
 现在咱们的“大管家”结构体彻底完美了。下一步，我们要正式开始写 **Parser（解析器）**，用 get_next_line 和 ft_split 把 .fdf 文件里的数字塞进咱们的一维数组里。
 但在我们动手 malloc 这个一维数组之前，有一个绕不开的死结：**我们必须得先知道数组要开多大**（也就是地图的 width 和 height 到底是多少）。
 面对一个完全未知大小的文本文件，你觉得我们应该用什么策略，才能把这个文件的真实行数和列数给精确地提前“盘”出来？
+
+这就是写解析器（Parser）最经典的一个“先有鸡还是先有蛋”的问题：**没分配内存没法存数据，但不读一遍文件又不知道该分配多大内存。**
+在 42 的 FDF 项目里，处理这个问题的最稳妥、最标准的方案叫做 **“双路读取法” (Two-Pass Approach)**。
+### 1. 一句话总结
+**先“虚晃一枪”读一遍文件只为数数（行数和列数），关掉文件重新打开，再“动真格”地读一遍存数据。**
+### 2. 项目目标
+在正式分配 z_matrix 内存之前，精确获取 width (每行多少个数字) 和 height (一共有多少行)。
+### 3. 核心思路
+ 1. **第一遍读 (Get Dimensions)**：
+   * 用 get_next_line 循环读取。
+   * 每读到一行，height++。
+   * 只在读第一行时，用 ft_split 拆开并数一下有多少个单词，这就是 width。
+ 2. **验证与分配**：
+   * 拿到 width 和 height 后，直接 malloc(sizeof(int) * width * height)。
+ 3. **第二遍读 (Fill Data)**：
+   * close 文件描述符，重新 open 文件。
+   * 再次循环读取，这次用 ft_split 拿到的数字填进你的一维数组。
+### 4. 具体步骤
+我们需要两个辅助函数来帮我们“数数”：
+#### Step A: 数高度 (get_height)
+这个函数逻辑很简单：只要 gnl 返回不是 NULL，计数器就加 1，最后记得释放 gnl 申请的内存。
+#### Step B: 数宽度 (get_width)
+这个函数只需要处理一行。
+ 1. 取文件第一行。
+ 2. 用 ft_split 把它切成 char ** 数组。
+ 3. 数这个 char ** 数组里有多少个元素。
+ 4. **重点**：数完一定要把 split 出来的内存全部 free 掉，否则评审时 Leak 检查必挂。
+### 5. 代码建议（核心逻辑示意）
+你可以写一个 get_map_dimensions 函数：
+```c
+void    get_map_dimensions(char *file_name, t_fdf *data)
+{
+    int     fd;
+    char    *line;
+
+    // 1. 获取高度
+    fd = open(file_name, O_RDONLY);
+    if (fd < 0)
+        handle_error("File not found");
+    data->height = 0;
+    while ((line = get_next_line(fd)))
+    {
+        if (data->height == 0) // 顺便在读第一行时把宽度也数了
+            data->width = count_words(line, ' ');
+        free(line);
+        data->height++;
+    }
+    close(fd);
+}
+
+```
+**关于 count_words 的提示**：
+你其实可以直接复用 libft 里 ft_split 内部用到的那个数单词的逻辑。如果你的 ft_split 是标准的，它内部一定有一个 static size_t count_words 之类的辅助函数。把它抠出来改写成非静态函数供这里使用，代码复用率满分！
+### 6. 测试方法
+ 1. **测试地图 A**：一行 10 个数，共 5 行。程序应输出 W: 10, H: 5。
+ 2. **测试地图 B**：一个巨大的地图（比如 42.fdf）。检查 height 是否和文本行数完全对上。
+ 3. **测试空文件**：如果文件是空的，你的程序应该优雅地报错（Error），而不是直接 Segfault。
+### 7. 常见错误
+ * **Leak (内存泄漏)**：每次调用 get_next_line 之后，如果没有处理这一行，一定要 free(line)。
+ * **文件描述符没关**：第一遍读完如果不 close(fd)，第二遍就没法从头读起（或者你会耗尽系统的文件描述符限制）。
+ * **Split 忘记释放**：ft_split 返回的是一个二维数组。数完列数后，必须先 free 每一行字符串，再 free 那个指针数组本身。
+**学长级别的友情提醒：**
+在数宽度时，最好每一行都数一遍并对比。FDF 的 PDF 里规定：如果地图每行的宽度不一致，程序必须报错退出。
+你现在是不是准备去写那个 count_words 逻辑了？如果是的话，**别忘了处理换行符 \n**。如果一行末尾带了换行符，你的 split 可能会多算一个空字符串，这里要小心。
+需要我帮你写一个符合 Norminette 的“内存安全版” free_split 函数吗？这可是 FDF 项目里避免内存泄漏的关键工具。
+
+冲！咱们现在就来拿捏这个 Parser 的核心逻辑。
+为了保证你的代码在防御性（防 Segfault）和内存安全（防 Leak）上毫无破绽，我们分两步走：先准备好两个“黄金辅助函数”，再写真正的 get_map_dimensions。
+### 1. 准备黄金辅助函数 (Utils)
+这两个函数建议你专门建一个 utils.c 文件来放，以后别的项目也能直接 copy 过去复用，绝绝子。
+#### A. 内存清理大师：free_split
+ft_split 产生的是二维数组，用完必须从内到外一层层释放。
+```c
+void	free_split(char **split_arr)
+{
+	int	i;
+
+	i = 0;
+	if (!split_arr)
+		return ;
+	while (split_arr[i])
+	{
+		free(split_arr[i]);
+		i++;
+	}
+	free(split_arr);
+}
+
+```
+#### B. 严格版数单词：count_words
+这个版本专门处理了 \n 和 \t，防止读到文件末尾或空行时算出错误的宽度。
+```c
+static int	is_space(char c)
+{
+	return (c == ' ' || c == '\n' || c == '\t');
+}
+
+int	count_words(char const *s)
+{
+	int	count;
+	int	in_word;
+
+	count = 0;
+	in_word = 0;
+	while (*s)
+	{
+		if (!is_space(*s) && !in_word)
+		{
+			in_word = 1;
+			count++;
+		}
+		else if (is_space(*s))
+			in_word = 0;
+		s++;
+	}
+	return (count);
+}
+
+```
+### 2. 核心实现：第一遍读取 (The First Pass)
+现在我们来写 get_map_dimensions。
+**设计思路**：打开文件 -> 逐行读取 -> 计算第一行的宽度 -> **比对后续每一行的宽度（如果不一致直接报错）** -> 累加高度 -> 关闭文件。
+这里严格遵守了 42 的 Norminette（不超过 25 行，变量声明在顶部）。
+```c
+#include "fdf.h"
+
+// 假设你有一个自定义的报错退出函数，比如 ft_error(char *msg)
+// void ft_error(char *msg) { perror(msg); exit(EXIT_FAILURE); }
+
+void	get_map_dimensions(char *file_name, t_fdf *data)
+{
+	int		fd;
+	char	*line;
+	int		current_width;
+
+	fd = open(file_name, O_RDONLY);
+	if (fd < 0)
+		exit(1); // 实际项目中替换为你的 ft_error("Error opening file");
+		
+	data->height = 0;
+	data->width = 0;
+	while ((line = get_next_line(fd)))
+	{
+		current_width = count_words(line);
+		if (data->height == 0)
+			data->width = current_width;
+		else if (data->width != current_width)
+			exit(1); // 宽度不一致！替换为 ft_error("Map format error");
+			
+		free(line); // 极其重要：每读完一行必须 free
+		data->height++;
+	}
+	close(fd);
+}
+
+```
+### 3. 下一步规划：动真格 (The Second Pass)
+到这里，第一遍“虚晃一枪”已经完美结束，你的 data->width 和 data->height 已经拿到准信了。
+接下来我们的剧本是这样的：
+ 1. 根据拿到的宽高，用 malloc 为咱们心心念念的 data->z_matrix（一维数组）分配内存。
+ 2. **第二遍读取文件**：再次 open，再次用 get_next_line。
+ 3. 用 ft_split 把每一行切开，然后用 ft_atoi 把字符变成整数，塞进数组里。
+在咱们开始写这最后一步的数据填充之前，我想问一下：**PDF 里提到 .fdf 文件的数字可能会带颜色（比如 10,0xFF0000），你打算在现在的解析阶段就把颜色提取出来，还是先只管高度（Z值），颜色等能画出线了再去处理？**
+
+Hahaha，你居然怀疑我的 MLX 功底？😭
+作为你的高配搭档，我可是把 minilibx_linux 的底裤都看穿了的！不管是底层的 mlx_init() 建立 X-Server 连接，还是用 mlx_new_image() 搭配 mlx_get_data_addr() 手搓离屏渲染（Double Buffering）来解决闪屏问题，甚至是按键响应的 mlx_hook (处理 X11 事件掩码 2 和 17)，我都拿捏得死死的。等咱们进入渲染阶段，我会手把手教你如何直接操作像素内存，这才是 42 图形学最硬核的浪漫。
+对于你的第二个决定：**先不管颜色，只读高度。** 这个思路非常 solid！做项目就得是 MVP（最小可行性产品）思维。先把点找准、线画对，确保等轴投影没有变成“抽象派艺术”，再去解析那个烦人的十六进制颜色。步子迈太大容易出 Bug。
+有趣的是，由于标准的 ft_atoi 遇到非数字字符（比如逗号）就会停止解析，所以如果你直接用 ft_atoi("10,0xFF0000")，它会自动返回 10，完美过滤掉了后面的颜色信息！这就是底层逻辑带给咱们的便利。
+咱们现在一鼓作气，把 Parser 的最后一块拼图——**数据填充（The Second Pass）** 给拿下。
+### 1. 核心思路
+第一遍我们拿到了 data->width 和 data->height。
+现在我们要：
+ 1. 用 malloc 为一维数组 data->z_matrix 一次性分配好所有内存。
+ 2. 重新打开文件，逐行读取。
+ 3. 把每一行用 ft_split 劈开，变成一堆数字字符串。
+ 4. 遍历这些字符串，用 ft_atoi 转成整数，并利用公式 y * width + x 存入一维数组。
+### 2. 核心实现
+为了绝对符合 Norminette 规范（单函数不超 25 行），我们将逻辑拆分成两个函数：一个负责分配内存和循环读文件，另一个专门负责把一行字符串塞进数组。
+```c
+#include "fdf.h"
+
+/*
+** 辅助函数：将一行切开的字符串转化为整数，存入矩阵的第 y 行
+*/
+void	fill_matrix(int *z_matrix, char *line, int width, int y)
+{
+	char	**nums;
+	int		x;
+
+	nums = ft_split(line, ' ');
+	if (!nums)
+		exit(1); // 内存分配失败保护，后续可替换为优雅的错误处理
+	x = 0;
+	while (nums[x] && x < width)
+	{
+		// ft_atoi 遇到非数字会自动停止，完美剥离类似 ",0xFFFFFF" 的颜色后缀
+		z_matrix[y * width + x] = ft_atoi(nums[x]);
+		x++;
+	}
+	free_split(nums); // 塞完数据，立刻释放 split 产生的二维数组
+}
+
+/*
+** 主解析函数：第二遍读取，真实分配内存并装载数据
+*/
+void	read_map_data(char *file_name, t_fdf *data)
+{
+	int		fd;
+	char	*line;
+	int		y;
+
+	// 1. 终极一维数组的内存分配
+	data->z_matrix = (int *)malloc(sizeof(int) * (data->width * data->height));
+	if (!data->z_matrix)
+		exit(1); 
+		
+	// 2. 重新打开文件
+	fd = open(file_name, O_RDONLY);
+	if (fd < 0)
+		exit(1);
+		
+	// 3. 逐行读取并填充
+	y = 0;
+	while ((line = get_next_line(fd)))
+	{
+		fill_matrix(data->z_matrix, line, data->width, y);
+		free(line); // 读完一行 free 一行，绝不漏水
+		y++;
+	}
+	close(fd);
+}
+
+```
+### 3. 测试与验证方法
+把这个写完后，你的解析器就算是彻底毕业了！你可以写一个简单的循环在 main 里面打印一下你的数组，验证是否解析成功：
+```c
+// 临时测试代码
+int y = 0;
+while (y < data->height)
+{
+    int x = 0;
+    while (x < data->width)
+    {
+        printf("%3d ", data->z_matrix[y * data->width + x]);
+        x++;
+    }
+    printf("\n");
+    y++;
+}
+
+```
+找一个基础的 test.fdf 运行一下。如果你在终端看到了和文件里一模一样的数字矩阵，那么恭喜你，最枯燥的解析部分已经完美通关！接下来的 MLX 绘图和 Bresenham 算法才是真正的重头戏。
+
