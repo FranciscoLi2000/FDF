@@ -82,10 +82,12 @@ FDF/
 │   ├── ft_hooks.c           # 键盘事件处理
 │   └── ft_utils.c           # 工具函数（error、free、颜色插值、像素写入）
 ├── bonus/                   # Bonus 源文件（ft_*_bonus.c）
-│   ├── ft_main_bonus.c
-│   ├── ft_parse_bonus.c
-│   ├── ft_render_bonus.c
-│   └── ft_utils_bonus.c
+│   ├── ft_main_bonus.c      # main + MLX init + 5个事件钩子
+│   ├── ft_parse_bonus.c     # 地图解析（同 mandatory）
+│   ├── ft_project_bonus.c   # 三轴旋转 + 三种投影模式
+│   ├── ft_hooks_bonus.c     # 键盘（J/K/U/O/C/G）+ 鼠标拖拽/滚轮
+│   ├── ft_render_bonus.c    # Bresenham + HUD 叠加层
+│   └── ft_utils_bonus.c     # 工具函数 + ft_scheme_color（三配色）
 ├── libft/                   # libft 依赖库
 ├── minilibx_linux/          # MiniLibX（Linux）图形库
 └── Makefile
@@ -1165,51 +1167,269 @@ mlx_loop(mlx)          ← 进入事件循环，阻塞等待键盘/窗口事件
 
 ## 7. 实现指南：Bonus 部分
 
-> Bonus 部分的源文件放在 `bonus/`，头文件为 `includes/fdf_bonus.h`，编译目标为 `fdf_bonus`。
+> Bonus 源文件在 `bonus/`，头文件 `includes/fdf_bonus.h`，编译目标 `fdf_bonus`。
+> 编译：`make bonus` → 运行：`./fdf_bonus <map.fdf>`
 
-### Bonus 功能列表
+### Bonus 功能总览
 
-| 功能 | 说明 |
-|------|------|
-| **额外投影** | 新增锥形投影（Conic）或斜二测画法（Cavalier） |
-| **鼠标缩放** | 滚轮缩放，鼠标拖拽平移 |
-| **额外旋转轴** | 增加 X 轴和 Y 轴旋转（原版只有 Z 轴） |
-| **颜色渐变** | 高度颜色更丰富（低=蓝→中=绿→高=白） |
-| **信息 HUD** | 在窗口角落显示当前 zoom / 旋转角度等参数 |
+| 功能 | 键/操作 | 说明 |
+|------|---------|------|
+| **X 轴倾斜** | J / K | 向前/向后倾斜视角 |
+| **Y 轴偏转** | U / O | 左/右偏转视角 |
+| **Z 轴旋转** | Q / E | 水平旋转（与 mandatory 相同）|
+| **CONIC 投影** | C | 骑士斜二测画法（30°, 0.5×深度）|
+| **颜色方案循环** | G | FIRE → GREY → HEAT → FIRE |
+| **鼠标拖拽旋转** | 左键拖拽 | 水平→Z轴，垂直→X轴 |
+| **鼠标滚轮缩放** | 滚轮上/下 | 放大/缩小 |
+| **HUD 叠加层** | 自动显示 | 控制提示 + 当前 Zoom / 投影 / 配色 |
 
-### Bonus 架构调整
+---
 
-```
-bonus/
-├── ft_main_bonus.c     # main + MLX init（复用 mandatory 逻辑）
-├── ft_render_bonus.c   # 额外投影模式 + 鼠标事件渲染
-├── ft_parse_bonus.c    # 同 mandatory（或直接符号链接）
-└── ft_utils_bonus.c    # HUD 绘制、鼠标回调函数
-```
+### Bonus Step 1 · `includes/fdf_bonus.h` — 扩展头文件
 
-**鼠标事件钩子（X11 事件号）：**
+相比强制版 `fdf.h`，bonus 头文件新增了以下内容：
 
+**`t_cam` 新字段：**
 ```c
-// 4 = ButtonPress（包含滚轮），6 = MotionNotify（鼠标移动）
-mlx_hook(fdf->win, 4, 1L << 2, ft_mouse_press,  fdf);
-mlx_hook(fdf->win, 6, 1L << 6, ft_mouse_motion, fdf);
-```
-
-**滚轮缩放（鼠标按键编号）：**
-
-```c
-int ft_mouse_press(int button, int x, int y, t_fdf *fdf)
+typedef struct s_cam
 {
-    (void)x;
-    (void)y;
-    if (button == 4)         // 滚轮向上 → 放大
-        fdf->cam.zoom *= ZOOM_STEP;
-    else if (button == 5)    // 滚轮向下 → 缩小
-        fdf->cam.zoom /= ZOOM_STEP;
+    double  zoom;
+    double  x_off;
+    double  y_off;
+    double  x_rot;         // ← NEW: X轴旋转角（J/K键）
+    double  y_rot;         // ← NEW: Y轴旋转角（U/O键）
+    double  z_rot;
+    int     proj;          // 0=ISO, 1=PARALLEL, 2=CONIC
+    int     color_scheme;  // ← NEW: 0=FIRE, 1=GREY, 2=HEAT
+}   t_cam;
+```
+
+**`t_mouse` 拖拽状态：**
+```c
+typedef struct s_mouse
+{
+    int     drag;     // 1 = 正在拖拽，0 = 未拖拽
+    int     prev_x;   // 上一帧鼠标 X 坐标
+    int     prev_y;   // 上一帧鼠标 Y 坐标
+}   t_mouse;
+```
+
+**`t_fdf` 增加 `t_mouse` 字段：**
+```c
+typedef struct s_fdf
+{
+    void    *mlx;
+    void    *win;
+    t_img   img;
+    t_map   *map;
+    t_cam   cam;
+    t_mouse mouse;  // ← NEW
+}   t_fdf;
+```
+
+---
+
+### Bonus Step 2 · `bonus/ft_project_bonus.c` — 三轴旋转 + 三种投影
+
+#### 三轴旋转原理
+
+强制版只旋转 Z 轴（平面旋转）。Bonus 版依次施加三次旋转矩阵：
+
+```
+原始坐标 (x, y, z)
+    │
+    ▼ Z轴旋转（ft_rotate_zx 第一步）
+    │  xz =  x·cos(z_rot) - y·sin(z_rot)
+    │  yz =  x·sin(z_rot) + y·cos(z_rot)
+    │
+    ▼ X轴旋转（ft_rotate_zx 第二步，紧接 Z 之后，节省 trig 调用）
+    │  yx =  yz·cos(x_rot) - z·sin(x_rot)
+    │  zx =  yz·sin(x_rot) + z·cos(x_rot)
+    │
+    ▼ Y轴旋转（ft_rotate_y）
+    │  xr =  x·cos(y_rot) + z·sin(y_rot)
+    │  zr = -x·sin(y_rot) + z·cos(y_rot)
+    │
+    ▼ 投影到屏幕 (ft_apply_proj)
+```
+
+**实现（`ft_rotate_zx`）：**
+```c
+static void ft_rotate_zx(double *x, double *y, double *z, t_cam *cam)
+{
+    double  xz;
+    double  yz;
+    double  yx;
+    double  zx;
+
+    xz = *x * cos(cam->z_rot) - *y * sin(cam->z_rot);
+    yz = *x * sin(cam->z_rot) + *y * cos(cam->z_rot);
+    yx = yz * cos(cam->x_rot) - *z * sin(cam->x_rot);
+    zx = yz * sin(cam->x_rot) + *z * cos(cam->x_rot);
+    *x = xz;
+    *y = yx;
+    *z = zx;
+}
+```
+
+#### 三种投影模式（`ft_apply_proj`）
+
+```
+ISO (isometric)           PARALLEL (top-down)       CONIC (cavalier oblique)
+─────────────────────     ──────────────────────     ─────────────────────────
+px = (x-y)·cos30·zoom     px = x·zoom               px = x·zoom + z·0.5·cos30
+py = (x+y)·sin30·zoom-z   py = y·zoom               py = y·zoom - z·0.5·sin30
+```
+
+**CONIC（骑士斜二测画法）**：Z 轴以 30° 角、0.5 倍深度投影到屏幕，
+产生一种"印刷立体图"的独特视觉效果，有别于 ISO 的对称式透视。
+
+---
+
+### Bonus Step 3 · `bonus/ft_hooks_bonus.c` — 键盘 + 鼠标
+
+#### 键盘（`ft_keypress`）
+
+```c
+int ft_keypress(int key, t_fdf *fdf)
+{
+    if (key == KEY_ESC) ft_close(fdf);
+    if (key == KEY_R)   ft_init_cam(fdf);  // 重置所有轴
+    ft_key_move(key, fdf);   // WASD + +-
+    ft_key_rot(key, fdf);    // QE + JK + UO
+    ft_key_proj(key, fdf);   // I P C G
     ft_render(fdf);
     return (0);
 }
 ```
+
+新增旋转键（`ft_key_rot`）：
+
+| 键 | 操作 |
+|----|------|
+| Q | Z轴 − (顺时针) |
+| E | Z轴 + (逆时针) |
+| J | X轴 + (向前倾斜) |
+| K | X轴 − (向后倾斜) |
+| U | Y轴 − (向左偏转) |
+| O | Y轴 + (向右偏转) |
+
+新增投影键（`ft_key_proj`）：
+
+| 键 | 操作 |
+|----|------|
+| I | ISO 模式 |
+| P | PARALLEL 模式 |
+| C | CONIC 模式 |
+| G | 循环颜色方案 FIRE→GREY→HEAT |
+
+#### 鼠标（三个事件钩子）
+
+```
+MLX 事件号    处理函数               功能
+──────────    ──────────────────     ────────────────────────────
+4 (ButtonPress)   ft_mouse_press     滚轮4/5 → 缩放；左键1 → 开始拖拽
+5 (ButtonRelease) ft_mouse_release   左键1 → 停止拖拽
+6 (MotionNotify)  ft_mouse_move      拖拽中：ΔX→z_rot，ΔY→x_rot
+```
+
+**拖拽旋转实现（`ft_mouse_move`）：**
+```c
+int ft_mouse_move(int x, int y, t_fdf *fdf)
+{
+    int dx;
+    int dy;
+
+    if (!fdf->mouse.drag)
+        return (0);
+    dx = x - fdf->mouse.prev_x;
+    dy = y - fdf->mouse.prev_y;
+    fdf->cam.z_rot += dx * 0.01;   // 水平拖动 → Z轴旋转
+    fdf->cam.x_rot += dy * 0.01;   // 垂直拖动 → X轴倾斜
+    fdf->mouse.prev_x = x;
+    fdf->mouse.prev_y = y;
+    ft_render(fdf);
+    return (0);
+}
+```
+
+---
+
+### Bonus Step 4 · `bonus/ft_render_bonus.c` — HUD 叠加层
+
+#### HUD 渲染原理
+
+`mlx_string_put` 直接将文字绘制到**窗口**（不经过图像缓冲区），
+所以必须在 `mlx_put_image_to_window` **之后**调用：
+
+```c
+void ft_render(t_fdf *fdf)
+{
+    // 1. 清空图像缓冲
+    ft_bzero(fdf->img.addr, WIN_W * WIN_H * (fdf->img.bpp / 8));
+    // 2. 遍历所有格子画线
+    ...
+    // 3. 将缓冲推送到屏幕
+    mlx_put_image_to_window(fdf->mlx, fdf->win, fdf->img.ptr, 0, 0);
+    // 4. 在屏幕顶层叠加 HUD（不受像素缓冲影响）
+    ft_draw_hud(fdf);
+}
+```
+
+#### HUD 内容
+
+```
+y=20  [灰色] WASD:pan  QE:spin  JK:tilt  UO:yaw  +-:zoom  R:reset
+y=40  [灰色] I:iso  P:parallel  C:conic  G:color  drag:rotate  ESC:quit
+y=60  [黄色] Zoom: <当前缩放值>
+y=80  [黄色] Mode: ISO / PARALLEL / CONIC
+y=100 [黄色] Color: FIRE / GREY / HEAT
+```
+
+动态状态由 `ft_hud_state` 生成，使用 `ft_itoa` 和 `ft_strjoin`
+拼接 zoom 字符串后显示，用完立即 `free`（无泄漏）。
+
+---
+
+### Bonus Step 5 · `bonus/ft_main_bonus.c` — 完整事件钩子注册
+
+```c
+int main(int argc, char **argv)
+{
+    t_fdf *fdf;
+
+    if (argc != 2)
+        ft_error("Usage: ./fdf_bonus <map.fdf>");
+    fdf = ft_init_fdf(argv[1]);
+    mlx_hook(fdf->win, 2,  1L << 0, ft_keypress,      fdf); // KeyPress
+    mlx_hook(fdf->win, 17, 0,       ft_close,          fdf); // WM destroy
+    mlx_hook(fdf->win, 4,  1L << 2, ft_mouse_press,    fdf); // ButtonPress
+    mlx_hook(fdf->win, 5,  1L << 3, ft_mouse_release,  fdf); // ButtonRelease
+    mlx_hook(fdf->win, 6,  1L << 6, ft_mouse_move,     fdf); // MotionNotify
+    ft_render(fdf);
+    mlx_loop(fdf->mlx);
+    return (0);
+}
+```
+
+**为什么需要 ButtonRelease 事件？**
+
+如果只有 Press + Motion，当用户释放鼠标后移动指针，
+`drag` 标志仍为 1，视图会继续无意旋转。
+ButtonRelease 将 `drag` 置回 0，确保拖拽语义正确。
+
+---
+
+### Bonus 颜色方案详解
+
+| 方案 | 低海拔 (z_min) | 高海拔 (z_max) | 效果 |
+|------|---------------|---------------|------|
+| FIRE | `0x0000FF` (蓝) | `0xFF4500` (橙红) | 岩浆流效果 |
+| GREY | `0x303030` (深灰) | `0xFFFFFF` (白) | 地形高程图 |
+| HEAT | `0x00FFFF` (青) | `0xFFFF00` (黄) | 热力图效果 |
+
+颜色由 `ft_scheme_color(z, map, scheme)` 计算，内部调用 `ft_lerp_color`。
+若地图格子有显式颜色（`has_color=1`），则直接使用原始颜色，忽略方案。
 
 ---
 
@@ -1271,11 +1491,20 @@ valgrind --track-fds=yes ./fdf maps/42.fdf
 
 ---
 
-> **✅ 强制部分全部完成！**
+---
+
+> **✅ 项目全部完成！Mandatory + Bonus**
 >
-> 所有 8 个步骤均已实现并可编译：
-> - MLX 双缓冲图像渲染（`ft_pixel_put` 直接写入内存地址）
-> - Bresenham 直线算法（`ft_draw_line` 含线性颜色插值）
+> **强制部分** (./fdf):
+> - 等距投影（ISO）+ 正交投影（PARALLEL）
+> - Bresenham 直线算法 + 线性颜色插值
+> - WASD 平移 · QE Z旋转 · +- 缩放 · R 复位 · I/P 切换投影
 >
-> 下一步：**Bonus 部分** — 鼠标缩放、额外投影、颜色渐变 HUD。
+> **Bonus 部分** (./fdf_bonus):
+> - 三轴旋转（Z/X/Y）— J/K X轴, U/O Y轴
+> - 第三投影模式：CONIC（骑士斜二测画法）
+> - 鼠标左键拖拽旋转（ΔX→Z轴, ΔY→X轴）
+> - 鼠标滚轮缩放
+> - HUD 叠加层（控制提示 + Zoom/模式/配色实时显示）
+> - 三种颜色方案循环（G键）：FIRE / GREY / HEAT
 
