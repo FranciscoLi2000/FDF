@@ -1,336 +1,304 @@
-# FdF — Fil de Fer · 3D 线框地图渲染器
+# FdF — Fil de Fer 線框地形渲染器
 
-> **42 Barcelona · Common Core Project**
-> 本 README 同时作为项目的**实现教程（Tutorial）**，按照代码实际编写顺序，从强制部分（Mandatory）到 Bonus 逐步拆解每一个模块。
-
----
-
-## 目录 Table of Contents
-
-1. [项目概述 Overview](#1-项目概述-overview)
-2. [文件结构 Project Structure](#2-文件结构-project-structure)
-3. [编译与运行 Build & Run](#3-编译与运行-build--run)
-4. [核心数学原理 Core Math](#4-核心数学原理-core-math)
-5. [数据结构 Data Structures](#5-数据结构-data-structures)
-6. [实现指南：强制部分 Mandatory](#6-实现指南强制部分-mandatory)
-   - [Step 1 · libft — 依赖库](#step-1--libft--依赖库)
-   - [Step 2 · fdf.h — 头文件与数据结构](#step-2--fdfh--头文件与数据结构)
-   - [Step 3 · ft_parse.c — 地图解析器](#step-3--ft_parsec--地图解析器)
-   - [Step 4 · ft_project.c — 投影与相机](#step-4--ft_projectc--投影与相机)
-   - [Step 5 · ft_utils.c — 工具函数](#step-5--ft_utilsc--工具函数)
-   - [Step 6 · ft_hooks.c — 键盘交互](#step-6--ft_hooksc--键盘交互)
-   - [Step 7 · ft_render.c — MLX 图像缓冲 + Bresenham 算法](#step-7--ft_renderc--mlx-图像缓冲--bresenham-算法)
-   - [Step 8 · ft_main.c — 程序入口与 MLX 初始化](#step-8--ft_mainc--程序入口与-mlx-初始化)
-7. [实现指南：Bonus 部分](#7-实现指南bonus-部分)
-8. [测试与调试 Testing](#8-测试与调试-testing)
-9. [常见错误 Common Bugs](#9-常见错误-common-bugs)
+> **繁體中文實作指南**  
+> 本文件以「從零開始寫出這個專案」為目標撰寫。  
+> 閱讀完本文並對照原始碼，你應該能夠在沒有任何外部協助的情況下，獨立完整重現這個專案。
 
 ---
 
-## 1. 项目概述 Overview
+## 目錄
 
-FdF（*Fil de Fer*，法语"铁丝"）要求读取一个 `.fdf` 高度图文件，将其渲染为**等轴投影（Isometric Projection）的三维线框景观**，并通过键盘实时控制视角。
+1. [專案概覽](#1-專案概覽)
+2. [環境依賴與編譯](#2-環境依賴與編譯)
+3. [專案目錄結構](#3-專案目錄結構)
+4. [資料結構設計](#4-資料結構設計)
+5. [強制部分：逐步實作](#5-強制部分逐步實作)
+   - 5.1 頭文件 `fdf.h`
+   - 5.2 地圖解析 `ft_parse.c`
+   - 5.3 投影與相機 `ft_project.c`
+   - 5.4 Bresenham 畫線與渲染 `ft_render.c`
+   - 5.5 鍵盤事件 `ft_hooks.c`
+   - 5.6 工具函式 `ft_utils.c`
+   - 5.7 程式入口 `ft_main.c`
+6. [Bonus 部分：逐步實作](#6-bonus-部分逐步實作)
+   - 6.1 頭文件 `fdf_bonus.h`
+   - 6.2 三軸旋轉 `ft_project_bonus.c`
+   - 6.3 鍵盤＋滑鼠事件 `ft_hooks_bonus.c`
+   - 6.4 渲染 + HUD `ft_render_bonus.c`
+   - 6.5 工具函式（含配色） `ft_utils_bonus.c`
+   - 6.6 程式入口 `ft_main_bonus.c`
+7. [核心演算法詳解](#7-核心演算法詳解)
+8. [常見錯誤與修正](#8-常見錯誤與修正)
+9. [記憶體管理檢查清單](#9-記憶體管理檢查清單)
+10. [操作快捷鍵總表](#10-操作快捷鍵總表)
 
-**程序管线（Pipeline）：**
+---
+
+## 1. 專案概覽
+
+FdF（法語：Fil de Fer，「鐵絲」之意）是一個 **線框地形視覺化工具**。  
+程式讀取一份純文字格式的高度地圖（`.fdf` 檔），  
+把每個格點依照其高度（Z 值）轉換為三維座標，  
+再用等角投影（Isometric Projection）投影到二維螢幕，  
+最後以 Bresenham 畫線演算法連接相鄰格點，形成線框網格。
+
+**最終視覺效果：**
 
 ```
-.fdf 文件
-    │
-    ▼
-地图解析 (Parser)
- 读取行列，存储 Z 高度值与颜色
-    │
-    ▼
-相机初始化 (Camera)
- 计算初始缩放、偏移，居中地图
-    │
-    ▼
-投影变换 (Projection)
- (x, y, z) ──等轴公式──▶ 屏幕 (px, py)
-    │
-    ▼
-MLX 图像缓冲 (Image Buffer)
- 使用 mlx_new_image 创建离屏画布
-    │
-    ▼
-Bresenham 连线 (draw_line)
- 在画布上逐像素绘制边（横向 + 纵向）
-    │
-    ▼
-推送到窗口 (mlx_put_image_to_window)
-    │
-    ▼
-事件循环 (mlx_loop)
- 监听键盘 → 更新相机 → 重新渲染
+          .*   *.
+        .* . . . *.
+      .* . . . . . *.
+    .* . . . / \ . . *.
+      .* . . \ / . *.
+        .* . . . *.
+          .* . *.
 ```
 
 ---
 
-## 2. 文件结构 Project Structure
+## 2. 環境依賴與編譯
 
-```
-FDF/
-├── en.subject.pdf/          # 三份项目 PDF（FDF / So Long / fract'ol）
-├── includes/
-│   ├── fdf.h                # 所有结构体、宏定义、函数原型
-│   └── fdf_bonus.h          # Bonus 专用头文件
-├── src/                     # 强制部分源文件（ft_*.c）
-│   ├── ft_main.c            # 程序入口 + MLX 初始化
-│   ├── ft_parse.c           # .fdf 文件解析器
-│   ├── ft_project.c         # 等轴/平行投影 + 相机初始化
-│   ├── ft_render.c          # 渲染循环 + Bresenham 连线
-│   ├── ft_hooks.c           # 键盘事件处理
-│   └── ft_utils.c           # 工具函数（error、free、颜色插值、像素写入）
-├── bonus/                   # Bonus 源文件（ft_*_bonus.c）
-│   ├── ft_main_bonus.c      # main + MLX init + 5个事件钩子
-│   ├── ft_parse_bonus.c     # 地图解析（同 mandatory）
-│   ├── ft_project_bonus.c   # 三轴旋转 + 三种投影模式
-│   ├── ft_hooks_bonus.c     # 键盘（J/K/U/O/C/G）+ 鼠标拖拽/滚轮
-│   ├── ft_render_bonus.c    # Bresenham + HUD 叠加层
-│   └── ft_utils_bonus.c     # 工具函数 + ft_scheme_color（三配色）
-├── libft/                   # libft 依赖库
-├── minilibx_linux/          # MiniLibX（Linux）图形库
-└── Makefile
-```
+### 系統需求
 
----
-
-## 3. 编译与运行 Build & Run
+- Linux（推薦 Ubuntu 20.04+）
+- 安裝 X11 開發函式庫：
 
 ```bash
-# 编译强制部分
+sudo apt-get install libx11-dev libxext-dev
+```
+
+### 目錄依賴
+
+本專案依賴以下兩個子目錄，請確保它們存在並可正常編譯：
+
+| 目錄 | 用途 |
+|------|------|
+| `libft/` | 42 標準函式庫（`ft_calloc`、`ft_split`、`get_next_line` 等） |
+| `minilibx_linux/` | MiniLibX Linux 圖形函式庫 |
+
+### 編譯指令
+
+```bash
+# 編譯強制部分 → 產生 ./fdf
 make
 
-# 编译 Bonus
+# 編譯 Bonus 部分 → 產生 ./fdf_bonus
 make bonus
 
-# 运行（需要一个 .fdf 地图文件）
-./fdf maps/42.fdf
-
-# 清理目标文件
+# 清除目標檔
 make clean
 
-# 清理所有（目标文件 + 可执行文件）
+# 清除目標檔 + 二進位檔
 make fclean
 
-# 重新编译
+# 完整重新編譯
 make re
 ```
 
-**键位说明 Keybindings：**
+### 執行
 
-| 按键 | 功能 |
-|------|------|
-| `ESC` | 退出程序 |
-| `W / S` | 上 / 下平移 |
-| `A / D` | 左 / 右平移 |
-| `Q / E` | 逆时针 / 顺时针旋转（Z 轴） |
-| `+ / -` | 放大 / 缩小 |
-| `R` | 重置视角 |
-| `I` | 切换到等轴投影 |
-| `P` | 切换到平行俯视投影 |
+```bash
+./fdf maps/42.fdf
+./fdf_bonus maps/mars.fdf
+```
+
+### Makefile 說明
+
+```makefile
+NAME      = fdf
+BONUS_NAME = fdf_bonus
+
+CC     = cc
+CFLAGS = -Wall -Wextra -Werror
+
+INCLUDES = -I includes -I minilibx_linux -I libft/includes
+LIBS     = -L minilibx_linux -lmlx_Linux -L libft -lft -lXext -lX11 -lm -lz
+```
+
+**重點：** `-lm` 是 `<math.h>` 所需的數學函式庫，務必加上。  
+`-lXext -lX11` 是 MiniLibX 所需的 X11 函式庫。
 
 ---
 
-## 4. 核心数学原理 Core Math
-
-### 4.1 等轴投影 Isometric Projection
-
-等轴投影将三维坐标 `(x, y, z)` 映射到二维屏幕坐标 `(px, py)`，使三个轴看起来等长且成 120° 夹角。
-
-**公式：**
+## 3. 專案目錄結構
 
 ```
-px = (x - y) × cos(30°) × zoom  +  x_offset
-py = (x + y) × sin(30°) × zoom  -  z  +  y_offset
-```
-
-其中 `cos(30°) = √3/2 ≈ 0.866`，`sin(30°) = 0.5`。
-
-**可视化：**
-
-```
-        Z（高度）
-        │
-        │   Y（地图列向前）
-        │  /
-        │ /
-        └──────── X（地图行向右）
-
-等轴视图下三轴均成 120°，Z 轴垂直向上（影响 py）
-```
-
-### 4.2 Z 轴旋转（可选增强）
-
-在投影前先绕 Z 轴旋转 `θ` 角：
-
-```
-x' = x × cos(θ) - y × sin(θ)
-y' = x × sin(θ) + y × cos(θ)
-```
-
-再将 `(x', y')` 代入等轴公式，即可实现地图任意角度旋转。
-
-### 4.3 初始缩放计算
-
-地图在等轴视图下的近似屏幕宽度 ≈ `(cols + rows) × zoom × cos(30°)`。
-为使地图居中填满窗口 80%：
-
-```c
-zoom = (WIN_W < WIN_H ? WIN_W : WIN_H) * 0.8
-       / ((map->cols + map->rows) * cos(M_PI / 6.0));
+FDF/
+├── Makefile
+├── includes/
+│   ├── fdf.h              # 強制部分頭文件
+│   └── fdf_bonus.h        # Bonus 頭文件
+├── src/                   # 強制部分原始碼
+│   ├── ft_main.c          # main() + MLX 初始化
+│   ├── ft_parse.c         # .fdf 地圖解析
+│   ├── ft_project.c       # 座標投影 + 相機初始化
+│   ├── ft_render.c        # 渲染迴圈 + Bresenham 畫線
+│   ├── ft_hooks.c         # 鍵盤事件
+│   └── ft_utils.c         # 工具函式
+├── bonus/                 # Bonus 部分原始碼
+│   ├── ft_main_bonus.c    # main() + 5 個 MLX 事件鉤子
+│   ├── ft_parse_bonus.c   # 與強制部分相同
+│   ├── ft_project_bonus.c # 三軸旋轉 + 三種投影模式
+│   ├── ft_hooks_bonus.c   # 鍵盤 + 滑鼠拖拽 + 滾輪縮放
+│   ├── ft_render_bonus.c  # Bresenham + HUD 疊加層
+│   └── ft_utils_bonus.c   # 工具 + ft_scheme_color 三配色
+├── libft/
+└── minilibx_linux/
 ```
 
 ---
 
-## 5. 数据结构 Data Structures
+## 4. 資料結構設計
 
-所有结构体集中在 `includes/fdf.h`，遵循 Norminette 命名规范（`t_` 前缀）。
+在開始撰寫任何函式之前，先把所有資料結構設計清楚，放在頭文件裡。  
+這是整個專案的骨架，理解它等於理解了整個程式。
 
-### `t_point` — 屏幕投影点
+### 強制部分（`includes/fdf.h`）
 
-```c
-typedef struct s_point
-{
-    double  x;      // 投影后屏幕 X 坐标
-    double  y;      // 投影后屏幕 Y 坐标
-    double  z;      // 缩放后的 Z 值（用于颜色插值）
-    int     color;  // 该点的像素颜色（0xRRGGBB）
-}   t_point;
-```
-
-### `t_map` — 地图数据
+#### `t_map` — 地圖資料
 
 ```c
 typedef struct s_map
 {
-    int     rows;       // 行数（Y 方向）
-    int     cols;       // 列数（X 方向）
-    int     **z;        // 二维高度矩阵 z[row][col]
-    int     **color;    // 二维颜色矩阵（显式颜色，无则为 0）
-    char    **has_color;// 标记该格是否有显式颜色（1=有，0=无）
-    int     z_max;      // 最大高度（用于颜色归一化）
-    int     z_min;      // 最小高度
+    int     rows;       // 總行數（.fdf 檔案有幾行）
+    int     cols;       // 總列數（每行有幾個格點）
+    int     **z;        // z[row][col] — 每個格點的高度值
+    int     **color;    // color[row][col] — 格點顏色（若檔案有指定）
+    char    **has_color;// has_color[row][col] — 1 = 檔案有指定顏色
+    int     z_max;      // 地圖中最大高度
+    int     z_min;      // 地圖中最小高度
 }   t_map;
 ```
 
-> **为什么用 `int **` 而非 `int *`（一维）？**
-> 两种方式均可。`int **` 在访问时更直观（`z[row][col]`），
-> `int *`（一维，寻址公式 `z[row * cols + col]`）分配更简洁、缓存友好。
-> 本项目选用 `int **` 提高可读性，通过一次性分配每行来保持内存局部性。
+**為什麼 `z`、`color`、`has_color` 都是二維指標陣列？**  
+因為我們不知道地圖大小，必須動態配置。  
+做法是先配置一個「指標陣列」（rows 個 `int*`），  
+再對每一行配置「整數陣列」（cols 個 `int`）。
 
-### `t_cam` — 相机参数
+```
+z[0] → [0][1][2][3]...
+z[1] → [0][1][2][3]...
+z[2] → [0][1][2][3]...
+```
+
+#### `t_cam` — 相機狀態
 
 ```c
 typedef struct s_cam
 {
-    double  zoom;   // 缩放倍数
-    double  x_off;  // 屏幕 X 偏移（用于居中 + 平移）
-    double  y_off;  // 屏幕 Y 偏移
-    double  z_rot;  // 绕 Z 轴旋转角度（弧度）
-    int     proj;   // 投影模式：ISO(0) 或 PARALLEL(1)
+    double  zoom;   // 縮放倍率（像素 / 格點單位）
+    double  x_off;  // 畫面水平偏移（平移）
+    double  y_off;  // 畫面垂直偏移（平移）
+    double  z_rot;  // Z 軸旋轉角（弧度）
+    int     proj;   // 投影模式：ISO 或 PARALLEL
 }   t_cam;
 ```
 
-### `t_img` — MLX 图像缓冲
+#### `t_img` — MiniLibX 影像緩衝區
 
 ```c
 typedef struct s_img
 {
-    void    *ptr;     // mlx_new_image 返回的指针
-    char    *addr;    // 像素数组首地址（mlx_get_data_addr）
-    int     bpp;      // 每像素位数（通常为 32）
-    int     ll;       // 每行字节数（line_length）
-    int     endian;   // 字节序
+    void    *ptr;    // mlx_new_image() 回傳的指標
+    char    *addr;   // mlx_get_data_addr() 回傳的像素記憶體位址
+    int     bpp;     // bits per pixel（通常是 32）
+    int     ll;      // line length（每行的位元組數）
+    int     endian;  // 位元組序（0 = little-endian）
 }   t_img;
 ```
 
-### `t_fdf` — 总管家结构体
+**關鍵理解：**  
+`addr` 是整個畫面的像素記憶體起點。  
+第 (x, y) 個像素的位置 = `addr + y * ll + x * (bpp / 8)`。  
+直接寫入這個位址就能畫像素，比 `mlx_pixel_put()` 快得多。
+
+#### `t_point` — 投影後的螢幕座標點
+
+```c
+typedef struct s_point
+{
+    double  x;     // 螢幕 X 座標
+    double  y;     // 螢幕 Y 座標
+    double  z;     // 保留深度值（畫線時用不到，但方便擴充）
+    int     color; // 該點的顏色
+}   t_point;
+```
+
+#### `t_line` — Bresenham 畫線狀態
+
+```c
+typedef struct s_line
+{
+    int     x;     // 目前像素 X
+    int     y;     // 目前像素 Y
+    int     dx;    // |x1 - x0|（X 方向距離）
+    int     dy;    // |y1 - y0|（Y 方向距離）
+    int     sx;    // X 步進方向（+1 或 -1）
+    int     sy;    // Y 步進方向（+1 或 -1）
+    int     err;   // 誤差累積器
+    int     steps; // 總步數（max(dx, dy)）
+    int     c0;    // 起點顏色
+    int     c1;    // 終點顏色
+}   t_line;
+```
+
+#### `t_fdf` — 整個程式的主結構
 
 ```c
 typedef struct s_fdf
 {
-    void    *mlx;   // MLX 连接实例
-    void    *win;   // 窗口指针
-    t_img   img;    // 图像缓冲（离屏渲染）
-    t_map   *map;   // 地图数据
-    t_cam   cam;    // 相机参数
+    void    *mlx;  // mlx_init() 的連線指標
+    void    *win;  // 視窗指標
+    t_img   img;   // 影像緩衝區
+    t_map   *map;  // 地圖資料（heap 配置）
+    t_cam   cam;   // 相機狀態（直接嵌入，非指標）
 }   t_fdf;
 ```
 
-> **Norminette 传参技巧：** 单个函数最多 4 个参数。
-> 只传 `t_fdf *fdf`，所有子系统都从这一个指针访问，无需多参数。
+### Bonus 額外擴充
 
----
+Bonus 的 `t_cam` 多出三個欄位：
 
-## 6. 实现指南：强制部分 Mandatory
+```c
+double  x_rot;        // X 軸傾斜角（J/K 鍵）
+double  y_rot;        // Y 軸偏轉角（U/O 鍵）
+int     color_scheme; // 配色方案（0=FIRE, 1=GREY, 2=HEAT）
+```
 
-### Step 1 · libft — 依赖库
+Bonus 新增 `t_mouse` 結構記錄滑鼠拖拽狀態：
 
-FdF 需要 libft 提供以下函数（放在 `libft/` 目录，由 `libft/Makefile` 编译为 `libft.a`）：
-
-| 函数 | 用途 |
-|------|------|
-| `ft_split(s, c)` | 按分隔符切割字符串（解析地图行） |
-| `ft_atoi(str)` | 字符串转整数（读取 Z 值） |
-| `ft_strlen(s)` | 字符串长度 |
-| `ft_strdup(s)` | 字符串复制 |
-| `ft_strjoin(s1, s2)` | 字符串拼接（GNL 内部使用） |
-| `ft_calloc(n, size)` | 分配并清零内存 |
-| `ft_bzero(ptr, n)` | 清零内存块 |
-| `ft_memset(ptr, c, n)` | 填充内存块 |
-| `ft_putstr_fd(s, fd)` | 向 fd 输出字符串（错误信息） |
-| `ft_putendl_fd(s, fd)` | 同上 + 换行 |
-| `ft_itoa(n)` | 整数转字符串（调试用） |
-| `get_next_line(fd)` | 逐行读取文件 |
-
-**`libft/Makefile` 关键规则：**
-
-```makefile
-NAME   = libft.a
-CC     = cc
-CFLAGS = -Wall -Wextra -Werror
-SRCS   = ft_memset.c ft_bzero.c ft_calloc.c ft_strlen.c ft_strdup.c \
-         ft_strjoin.c ft_split.c ft_atoi.c ft_itoa.c    \
-         ft_putstr_fd.c ft_putendl_fd.c get_next_line.c
-OBJS   = $(SRCS:.c=.o)
-
-all: $(NAME)
-$(NAME): $(OBJS)
-ar rcs $(NAME) $(OBJS)
-%.o: %.c libft.h
-$(CC) $(CFLAGS) -c $< -o $@
-clean:
-rm -f $(OBJS)
-fclean: clean
-rm -f $(NAME)
-re: fclean all
-.PHONY: all clean fclean re
+```c
+typedef struct s_mouse
+{
+    int     drag;    // 1 = 正在拖拽
+    int     prev_x;  // 上一幀滑鼠 X
+    int     prev_y;  // 上一幀滑鼠 Y
+}   t_mouse;
 ```
 
 ---
 
-### Step 2 · fdf.h — 头文件与数据结构
+## 5. 強制部分：逐步實作
 
-`includes/fdf.h` 是整个项目的"合同"——所有结构体定义、宏、函数原型都在这里集中声明。
+> **實作順序建議：**  
+> `fdf.h` → `ft_utils.c` → `ft_parse.c` → `ft_project.c` → `ft_render.c` → `ft_hooks.c` → `ft_main.c`
+
+---
+
+### 5.1 頭文件 `fdf.h`
+
+把所有常數、結構體、函式宣告集中在一個頭文件，  
+確保所有 `.c` 檔只需要 `#include "fdf.h"` 就能取得全部定義。
+
+**重要常數：**
 
 ```c
-#ifndef FDF_H
-# define FDF_H
-
-# include <stdlib.h>
-# include <unistd.h>
-# include <fcntl.h>
-# include <math.h>
-# include "../minilibx_linux/mlx.h"
-# include "../libft/libft.h"
-
-/* ── 窗口参数 ── */
-# define WIN_W     1280
-# define WIN_H     960
+/* 視窗大小 */
+# define WIN_W   1280
+# define WIN_H   960
 # define WIN_TITLE "FdF"
 
-/* ── Linux X11 键码 ── */
+/* Linux X11 鍵盤代碼（用 xev 指令可以查詢任意按鍵的代碼） */
 # define KEY_ESC   65307
 # define KEY_W     119
 # define KEY_A     97
@@ -344,356 +312,168 @@ re: fclean all
 # define KEY_I     105
 # define KEY_P     112
 
-/* ── 投影模式 ── */
+/* 投影模式 */
 # define ISO      0
 # define PARALLEL 1
 
-/* ── 默认颜色（高度渐变：低=蓝，高=橙红） ── */
-# define C_LOW  0x0000FF
-# define C_HIGH 0xFF4500
+/* 高度漸層顏色（低海拔=藍，高海拔=橙紅） */
+# define C_LOW    0x0000FF
+# define C_HIGH   0xFF4500
 
-/* ── 相机步进量 ── */
-# define MOVE_STEP  20.0
-# define ROT_STEP   0.05
-# define ZOOM_STEP  1.1
+/* 相機移動步幅 */
+# define MOVE_STEP 20.0
+# define ROT_STEP  0.05
+# define ZOOM_STEP 1.1
+```
 
-typedef struct s_point
-{
-    double  x;
-    double  y;
-    double  z;
-    int     color;
-}   t_point;
+**如何找按鍵代碼？**
 
-typedef struct s_map
-{
-    int     rows;
-    int     cols;
-    int     **z;
-    int     **color;
-    char    **has_color;
-    int     z_max;
-    int     z_min;
-}   t_map;
-
-typedef struct s_cam
-{
-    double  zoom;
-    double  x_off;
-    double  y_off;
-    double  z_rot;
-    int     proj;
-}   t_cam;
-
-typedef struct s_img
-{
-    void    *ptr;
-    char    *addr;
-    int     bpp;
-    int     ll;
-    int     endian;
-}   t_img;
-
-typedef struct s_fdf
-{
-    void    *mlx;
-    void    *win;
-    t_img   img;
-    t_map   *map;
-    t_cam   cam;
-}   t_fdf;
-
-/* ── ft_parse.c ── */
-t_map   *ft_parse_map(const char *file);
-void    ft_free_map(t_map *map);
-
-/* ── ft_project.c ── */
-t_point ft_project(int col, int row, t_fdf *fdf);
-void    ft_init_cam(t_fdf *fdf);
-
-/* ── ft_render.c ── */
-void    ft_render(t_fdf *fdf);
-void    ft_draw_line(t_fdf *fdf, t_point p0, t_point p1);
-
-/* ── ft_hooks.c ── */
-int     ft_keypress(int key, t_fdf *fdf);
-int     ft_close(t_fdf *fdf);
-
-/* ── ft_utils.c ── */
-void    ft_error(const char *msg);
-void    ft_free_fdf(t_fdf *fdf);
-int     ft_lerp_color(int c1, int c2, double t);
-void    ft_pixel_put(t_img *img, int x, int y, int color);
-int     ft_hex_to_int(const char *hex);
-
-#endif
+```bash
+# 在終端機執行 xev，然後按下你想要的鍵，就會顯示 keycode
+xev | grep -A2 --line-buffered '^KeyPress'
 ```
 
 ---
 
-### Step 3 · ft_parse.c — 地图解析器
+### 5.2 地圖解析 `ft_parse.c`
 
-解析器采用**双路读取法（Two-Pass）**：
-- **第一遍**：只数行数（`rows`）和列数（`cols`），同时校验每行宽度一致。
-- **第二遍**：分配内存，填充 `z`、`color`、`has_color` 矩阵。
-
-**.fdf 文件格式：**
+地圖格式範例（`test.fdf`）：
 
 ```
 0  0  0  0  0
-0  1  1  1  0
 0  1  2  1  0
-0  1  1  1  0
+0  2  4  2  0
+0  1  2  1  0
 0  0  0  0  0
 ```
 
-带颜色的格式（`z值,0xRRGGBB`）：
+帶自訂顏色的格式：
 
 ```
-0,0x000000  0,0x0000FF  0
-1,0xFF0000  2,0x00FF00  1
+0,0xFF0000  1,0x00FF00  0
 ```
 
-**解析流程：**
+**實作步驟：**
 
-```
-open(file)
-    │
-    ├─ 第一遍 ─▶  逐行 get_next_line
-    │              ├─ 数行数 rows++
-    │              └─ 第一行 ft_split → 数 cols（后续行校验一致性）
-    │            close(fd)
-    │
-    ├─ 分配内存 ─▶  ft_alloc_map(rows, cols)
-    │               为 z[][]、color[][]、has_color[][] 各分配二维数组
-    │
-    └─ 第二遍 ─▶  再次 open(file)
-                   逐行 get_next_line → ft_split → ft_parse_token
-                   close(fd)
-```
-
-**`ft_parse_token` 解析单个格子：**
+#### 步驟一：計算行數（`ft_count_rows`）
 
 ```c
-// token 格式：  "5"  或  "5,0xFF0000"
-//              └─z─┘    └──z──┘└色┘
-static void ft_parse_token(const char *token,
-                            int *z, int *color, char *has_c)
+static int ft_count_rows(const char *file)
 {
-    int i;
+    int   fd;
+    int   rows;
+    char  *line;
 
-    *z     = ft_atoi(token);   // ft_atoi 遇到 ',' 自动停止
-    *color = 0;
-    *has_c = 0;
-    i = 0;
-    while (token[i] && token[i] != ',')
-        i++;
-    if (token[i] == ',')       // 有显式颜色
+    fd = open(file, O_RDONLY);
+    if (fd < 0)
+        ft_error("Cannot open map file");
+    rows = 0;
+    line = get_next_line(fd);
+    while (line)
     {
-        i++;
-        if (token[i] == '0' && (token[i + 1] == 'x' || token[i + 1] == 'X'))
-            i += 2;
-        *color = ft_hex_to_int(&token[i]);
-        *has_c = 1;
+        if (line[0] != '\n')  // 跳過空行
+            rows++;
+        free(line);           // 每次 get_next_line 回傳的字串都要 free
+        line = get_next_line(fd);
     }
+    close(fd);
+    return (rows);
 }
 ```
 
-**内存分配（`ft_alloc_map`）：**
+**注意：** `get_next_line` 每次呼叫都 `malloc` 一個新字串，  
+你必須在每次迴圈結束時 `free(line)`，否則會有記憶體洩漏。
+
+#### 步驟二：計算列數（`ft_count_cols`）
 
 ```c
-// 分配 rows × cols 的二维数组（每层单独 malloc 以便逐行 free）
+static int ft_count_cols(const char *line)
+{
+    char  **tokens;
+    int   cols;
+    int   i;
+
+    tokens = ft_split(line, ' ');  // 以空格分割
+    if (!tokens)
+        return (0);
+    cols = 0;
+    while (tokens[cols])           // 計算 token 數量
+        cols++;
+    i = 0;
+    while (tokens[i])              // 釋放每個 token
+        free(tokens[i++]);
+    free(tokens);                  // 釋放指標陣列
+    return (cols);
+}
+```
+
+#### 步驟三：配置記憶體（`ft_alloc_map`）
+
+```c
 static t_map *ft_alloc_map(int rows, int cols)
 {
     t_map *map;
-    int    i;
+    int   i;
 
     map = ft_calloc(1, sizeof(t_map));
+    if (!map)
+        return (NULL);
     map->rows = rows;
     map->cols = cols;
+    // 先配置「指標陣列」（每個元素是 int*）
     map->z         = ft_calloc(rows, sizeof(int *));
     map->color     = ft_calloc(rows, sizeof(int *));
     map->has_color = ft_calloc(rows, sizeof(char *));
+    if (!map->z || !map->color || !map->has_color)
+        return (ft_free_map(map), NULL);  // 配置失敗立刻釋放
     i = 0;
     while (i < rows)
     {
+        // 再為每一行配置「整數陣列」
         map->z[i]         = ft_calloc(cols, sizeof(int));
         map->color[i]     = ft_calloc(cols, sizeof(int));
         map->has_color[i] = ft_calloc(cols, sizeof(char));
+        if (!map->z[i] || !map->color[i] || !map->has_color[i])
+            return (ft_free_map(map), NULL);
         i++;
     }
     return (map);
 }
 ```
 
-**内存释放（`ft_free_map`）：**
+**為什麼用 `ft_calloc` 而不是 `malloc`？**  
+`ft_calloc` 會把配置的記憶體清零（`z_min` 初始為 0，`has_color` 初始為 0 等）。
+
+#### 步驟四：解析單一 token（`ft_parse_token`）
+
+每個 token 的格式是 `<高度值>` 或 `<高度值>,0x<顏色>`：
 
 ```c
-void ft_free_map(t_map *map)
+static void ft_parse_token(const char *token,
+                           int *z, int *color, char *has_c)
 {
     int i;
 
-    if (!map)
-        return ;
+    *z = ft_atoi(token);   // 解析整數高度（可以是負數）
+    *color = 0;
+    *has_c = 0;
     i = 0;
-    while (map->z && i < map->rows)
-    {
-        free(map->z[i]);
-        free(map->color[i]);
-        free(map->has_color[i]);
+    while (token[i] && token[i] != ',')
         i++;
-    }
-    free(map->z);
-    free(map->color);
-    free(map->has_color);
-    free(map);
-}
-```
-
----
-
-### Step 4 · ft_project.c — 投影与相机
-
-#### `ft_init_cam` — 相机初始化
-
-```c
-void ft_init_cam(t_fdf *fdf)
-{
-    double span;
-
-    // 地图在等轴视图下的近似对角宽度
-    span = (fdf->map->cols + fdf->map->rows) * cos(M_PI / 6.0);
-    fdf->cam.zoom  = (WIN_W < WIN_H ? WIN_W : WIN_H) * 0.75 / span;
-    if (fdf->cam.zoom < 1.0)
-        fdf->cam.zoom = 1.0;
-    fdf->cam.x_off = WIN_W / 2.0;
-    fdf->cam.y_off = WIN_H / 2.0;
-    fdf->cam.z_rot = 0.0;
-    fdf->cam.proj  = ISO;
-}
-```
-
-#### `ft_project` — 坐标变换核心
-
-```c
-// 将地图格子 (col, row) 变换为屏幕坐标 t_point
-t_point ft_project(int col, int row, t_fdf *fdf)
-{
-    t_point p;
-    double  x, y, z;
-    double  cos_r, sin_r, xr, yr;
-
-    // 1. 将地图原点居中
-    x = col - fdf->map->cols / 2.0;
-    y = row - fdf->map->rows / 2.0;
-
-    // 2. Z 轴旋转
-    cos_r = cos(fdf->cam.z_rot);
-    sin_r = sin(fdf->cam.z_rot);
-    xr = x * cos_r - y * sin_r;
-    yr = x * sin_r + y * cos_r;
-
-    // 3. Z 高度缩放（z_scale 控制山峰夸张程度）
-    z = ft_z_scale(fdf, row, col);
-
-    // 4. 投影
-    if (fdf->cam.proj == ISO)
+    if (token[i] == ',')   // 有顏色指定
     {
-        p.x = (xr - yr) * cos(M_PI / 6.0) * fdf->cam.zoom + fdf->cam.x_off;
-        p.y = (xr + yr) * sin(M_PI / 6.0) * fdf->cam.zoom - z + fdf->cam.y_off;
+        i++;
+        if (token[i] == '0' && (token[i + 1] == 'x' || token[i + 1] == 'X'))
+            i += 2;        // 跳過 "0x" 前綴
+        *color = ft_hex_to_int(&token[i]);
+        *has_c = 1;
     }
-    else // PARALLEL（平行俯视）
-    {
-        p.x = xr * fdf->cam.zoom + fdf->cam.x_off;
-        p.y = yr * fdf->cam.zoom + fdf->cam.y_off;
-    }
-
-    // 5. 取得颜色（显式颜色或高度渐变色）
-    p.color = ft_get_color(col, row, fdf);
-    p.z = z;
-    return (p);
 }
 ```
 
-**Z 轴缩放辅助：**
+#### 步驟五：十六進位字串轉整數（`ft_hex_to_int`）
 
 ```c
-// 自适应 z_scale：确保高度感知在不同地图上一致
-static double ft_z_scale(t_fdf *fdf, int row, int col)
-{
-    int    z_range;
-    double scale;
-
-    z_range = fdf->map->z_max - fdf->map->z_min;
-    if (z_range == 0)
-        return (0.0);
-    scale = fdf->cam.zoom
-            * (fdf->map->cols > fdf->map->rows
-                ? fdf->map->cols : fdf->map->rows)
-            * 0.4 / z_range;
-    return ((double)(fdf->map->z[row][col] - fdf->map->z_min) * scale);
-}
-```
-
----
-
-### Step 5 · ft_utils.c — 工具函数
-
-#### `ft_error` — 优雅报错退出
-
-```c
-void ft_error(const char *msg)
-{
-    ft_putstr_fd("Error: ", 2);
-    ft_putendl_fd((char *)msg, 2);
-    exit(EXIT_FAILURE);
-}
-```
-
-#### `ft_free_fdf` — 释放所有资源
-
-```c
-void ft_free_fdf(t_fdf *fdf)
-{
-    if (!fdf)
-        return ;
-    if (fdf->img.ptr)
-        mlx_destroy_image(fdf->mlx, fdf->img.ptr);
-    if (fdf->win)
-        mlx_destroy_window(fdf->mlx, fdf->win);
-    if (fdf->mlx)
-    {
-        mlx_destroy_display(fdf->mlx);
-        free(fdf->mlx);
-    }
-    ft_free_map(fdf->map);
-    free(fdf);
-}
-```
-
-#### `ft_lerp_color` — 颜色线性插值
-
-```c
-// 将颜色 c1 和 c2 按比例 t（0.0~1.0）混合
-// 用于：高度渐变色（低=C_LOW, 高=C_HIGH）
-//       以及 Bresenham 连线时两端点颜色过渡
-int ft_lerp_color(int c1, int c2, double t)
-{
-    int r;
-    int g;
-    int b;
-
-    r = (int)((1 - t) * ((c1 >> 16) & 0xFF) + t * ((c2 >> 16) & 0xFF));
-    g = (int)((1 - t) * ((c1 >> 8)  & 0xFF) + t * ((c2 >> 8)  & 0xFF));
-    b = (int)((1 - t) * (c1 & 0xFF)         + t * (c2 & 0xFF));
-    return ((r << 16) | (g << 8) | b);
-}
-```
-
-#### `ft_hex_to_int` — 十六进制字符串转整数
-
-```c
-// 将 "FF0000" 或 "ff0000" 转换为 0xFF0000
 int ft_hex_to_int(const char *hex)
 {
     int result;
@@ -701,7 +481,7 @@ int ft_hex_to_int(const char *hex)
     result = 0;
     while (*hex)
     {
-        result <<= 4;
+        result <<= 4;   // 左移 4 位 = 乘以 16
         if (*hex >= '0' && *hex <= '9')
             result |= *hex - '0';
         else if (*hex >= 'a' && *hex <= 'f')
@@ -709,68 +489,477 @@ int ft_hex_to_int(const char *hex)
         else if (*hex >= 'A' && *hex <= 'F')
             result |= *hex - 'A' + 10;
         else
-            break ;
+            break;      // 遇到非十六進位字元即停止
         hex++;
     }
     return (result);
 }
 ```
 
-#### `ft_pixel_put` — 向 MLX 图像缓冲写入像素
+**範例：** `"FF4500"` 解析過程：  
+`F` → result = 15  
+`F` → result = 15*16 + 15 = 255  
+`4` → result = 255*16 + 4 = 4084  
+... 最終 = 16729344 = `0xFF4500`
+
+#### 步驟六：主解析函式（`ft_parse_map`）
 
 ```c
-// 直接操作 mlx_get_data_addr 返回的内存地址，写入单个像素颜色
-// 比 mlx_pixel_put 快得多（避免了每次系统调用的开销）
+t_map *ft_parse_map(const char *file)
+{
+    t_map *map;
+    int   fd;
+    char  *line;
+    int   row;
+    int   cols;
+
+    // 第一次開檔：讀第一行確定列數
+    line = NULL;
+    fd = open(file, O_RDONLY);
+    if (fd < 0)
+        ft_error("Cannot open map file");
+    line = get_next_line(fd);
+    if (line)
+        cols = ft_count_cols(line);
+    else
+        ft_error("Map file is empty");
+    free(line);
+    close(fd);
+
+    // 配置記憶體
+    map = ft_alloc_map(ft_count_rows(file), cols);
+    if (!map)
+        ft_error("malloc failed");
+    map->z_max = 0;
+    map->z_min = 0;
+
+    // 第二次開檔：實際解析所有資料
+    fd = open(file, O_RDONLY);
+    if (fd < 0)
+        ft_error("Cannot open map file");
+    row = 0;
+    line = get_next_line(fd);
+    while (line)
+    {
+        if (line[0] != '\n' && row < map->rows)
+            ft_parse_row(map, line, row++);
+        free(line);
+        line = get_next_line(fd);
+    }
+    close(fd);
+    return (map);
+}
+```
+
+**為什麼要開檔兩次？**  
+第一次確定行列數以便配置記憶體，  
+第二次才填入實際數值。  
+這樣可以避免動態重新配置（realloc）的複雜性。
+
+#### 步驟七：釋放地圖記憶體（`ft_free_map`）
+
+```c
+void ft_free_map(t_map *map)
+{
+    int i;
+
+    if (!map)
+        return;
+    i = 0;
+    // 先釋放每一行的整數陣列
+    while (map->z && i < map->rows)
+    {
+        free(map->z[i]);
+        free(map->color[i]);
+        free(map->has_color[i]);
+        i++;
+    }
+    // 再釋放指標陣列
+    free(map->z);
+    free(map->color);
+    free(map->has_color);
+    free(map);
+}
+```
+
+**重要原則：** 配置和釋放必須成對，配置的層數有幾層，釋放也要幾層。
+
+---
+
+### 5.3 投影與相機 `ft_project.c`
+
+這是整個專案最核心的數學部分。  
+任務：把地圖的格點 `(col, row)` 轉換為螢幕上的像素座標 `(x, y)`。
+
+#### 步驟一：相機初始化（`ft_init_cam`）
+
+```c
+void ft_init_cam(t_fdf *fdf)
+{
+    double span;
+
+    // span = 地圖對角線在 ISO 投影後的大約寬度
+    span = (fdf->map->cols + fdf->map->rows) * cos(M_PI / 6.0);
+    if (span < 1.0)
+        span = 1.0;
+    // 讓地圖剛好佔視窗的 75%
+    fdf->cam.zoom = (WIN_W < WIN_H ? WIN_W : WIN_H) * 0.75 / span;
+    if (fdf->cam.zoom < 1.0)
+        fdf->cam.zoom = 1.0;
+    // 地圖置中
+    fdf->cam.x_off = WIN_W / 2.0;
+    fdf->cam.y_off = WIN_H / 2.0;
+    fdf->cam.z_rot = 0.0;
+    fdf->cam.proj = ISO;
+}
+```
+
+**zoom 計算原理：**  
+等角投影下，地圖寬度約為 `(cols + rows) * cos(30°)` 個「地圖單位」。  
+用視窗較小邊的 75% 除以這個值，就能讓整張地圖剛好填滿視窗。
+
+#### 步驟二：Z 值縮放（`ft_z_scale`）
+
+```c
+static double ft_z_scale(t_fdf *fdf, int row, int col)
+{
+    int    z_range;
+    int    map_span;
+    double scale;
+
+    z_range = fdf->map->z_max - fdf->map->z_min;
+    if (z_range == 0)
+        return (0.0);                        // 平坦地圖，不需要高度
+    map_span = fdf->map->cols > fdf->map->rows
+        ? fdf->map->cols : fdf->map->rows;
+    // 縮放比例：讓高度在視覺上佔地圖大小的 40%
+    scale = fdf->cam.zoom * map_span * 0.4 / z_range;
+    return ((double)(fdf->map->z[row][col] - fdf->map->z_min) * scale);
+}
+```
+
+**為什麼要縮放 Z？**  
+.fdf 檔的 Z 值可能是 0～255，也可能是 -100～100，單位不定。  
+我們需要把它轉換成螢幕像素單位，讓視覺上的高度感覺合理。
+
+#### 步驟三：等角投影（Isometric Projection）
+
+等角投影是一種特殊的軸測投影，三條軸在投影後夾角相等（各 120°）。  
+X 軸和 Y 軸在螢幕上各呈 30° 斜角，Z 軸垂直向上。
+
+**數學公式（先做 Z 軸旋轉，再做等角投影）：**
+
+```
+1. 以地圖中心為原點：
+   x = col - cols/2
+   y = row - rows/2
+
+2. Z 軸旋轉（繞螢幕法線旋轉）：
+   xr = x * cos(z_rot) - y * sin(z_rot)
+   yr = x * sin(z_rot) + y * cos(z_rot)
+
+3. 等角投影（30° 斜軸）：
+   screen_x = (xr - yr) * cos(30°) * zoom + x_off
+   screen_y = (xr + yr) * sin(30°) * zoom - z + y_off
+```
+
+**為什麼螢幕 Y 要減去 Z？**  
+螢幕 Y 軸向下為正，但地形高度越大應該越往上顯示，所以減去 Z。
+
+```c
+t_point ft_project(int col, int row, t_fdf *fdf)
+{
+    t_point p;
+    double  x, y, z;
+    double  cos_r, sin_r, xr, yr;
+
+    // 以地圖中心為原點
+    x = col - fdf->map->cols / 2.0;
+    y = row - fdf->map->rows / 2.0;
+    z = ft_z_scale(fdf, row, col);
+
+    // Z 軸旋轉
+    cos_r = cos(fdf->cam.z_rot);
+    sin_r = sin(fdf->cam.z_rot);
+    xr = x * cos_r - y * sin_r;
+    yr = x * sin_r + y * cos_r;
+
+    // 等角投影
+    if (fdf->cam.proj == ISO)
+    {
+        p.x = (xr - yr) * cos(M_PI / 6.0) * fdf->cam.zoom + fdf->cam.x_off;
+        p.y = (xr + yr) * sin(M_PI / 6.0) * fdf->cam.zoom - z + fdf->cam.y_off;
+    }
+    else  // PARALLEL：直接俯視
+    {
+        p.x = xr * fdf->cam.zoom + fdf->cam.x_off;
+        p.y = yr * fdf->cam.zoom + fdf->cam.y_off;
+    }
+    p.z = z;
+    p.color = ft_get_color(col, row, fdf);
+    return (p);
+}
+```
+
+#### 步驟四：顏色取得（`ft_get_color`）
+
+```c
+static int ft_get_color(int col, int row, t_fdf *fdf)
+{
+    double t;
+
+    // 優先使用地圖檔自訂顏色
+    if (fdf->map->has_color[row][col])
+        return (fdf->map->color[row][col]);
+    // 平坦地圖用白色
+    if (fdf->map->z_max == fdf->map->z_min)
+        return (0xFFFFFF);
+    // 根據高度做線性插值（低=藍，高=橙紅）
+    t = (double)(fdf->map->z[row][col] - fdf->map->z_min)
+        / (double)(fdf->map->z_max - fdf->map->z_min);
+    return (ft_lerp_color(C_LOW, C_HIGH, t));
+}
+```
+
+**t 的意義：**  
+`t = 0` 時為最低點（藍色），  
+`t = 1` 時為最高點（橙紅色），  
+`0 < t < 1` 時為線性插值的中間色。
+
+---
+
+### 5.4 Bresenham 畫線與渲染 `ft_render.c`
+
+#### 核心概念：雙緩衝渲染
+
+**不要使用 `mlx_pixel_put()`！** 它每畫一個像素都會呼叫一次系統呼叫，  
+畫幾千個像素時會非常慢，螢幕會閃爍。
+
+**正確做法：雙緩衝（off-screen buffer）**
+
+```
+1. 建立一個離屏影像（mlx_new_image）
+2. 取得像素記憶體指標（mlx_get_data_addr）
+3. 直接用指標寫入像素（ft_pixel_put）
+4. 一次性把整個影像送到螢幕（mlx_put_image_to_window）
+```
+
+#### 步驟一：像素寫入（`ft_pixel_put`）
+
+```c
 void ft_pixel_put(t_img *img, int x, int y, int color)
 {
     char *dst;
 
+    // 邊界檢查：超出視窗範圍就不畫
     if (x < 0 || x >= WIN_W || y < 0 || y >= WIN_H)
-        return ;
+        return;
+    // 計算像素在記憶體中的位址
+    // ll = line length（每行的位元組數，可能有對齊填充，不等於 WIN_W * 4）
     dst = img->addr + (y * img->ll + x * (img->bpp / 8));
     *(unsigned int *)dst = color;
 }
 ```
 
-> **为什么不用 `mlx_pixel_put`？**
-> `mlx_pixel_put` 每次调用都触发 X11 系统调用，渲染整张地图会产生数万次调用，导致严重闪屏和卡顿。
-> 使用 `mlx_new_image` + `mlx_get_data_addr` 先在内存缓冲区绘制完整帧，
-> 最后一次性 `mlx_put_image_to_window`，即**双缓冲（Double Buffering）**技术。
+**記憶體佈局（以 32 位元色彩為例）：**
+
+```
+addr[0..3]   → 第 0 行第 0 列像素（ARGB）
+addr[4..7]   → 第 0 行第 1 列像素
+...
+addr[ll..ll+3] → 第 1 行第 0 列像素
+```
+
+注意 `ll` 不一定等於 `WIN_W * 4`，因為記憶體可能有對齊填充，  
+**必須用 `mlx_get_data_addr` 回傳的 `ll` 值，不能自己算**。
+
+#### 步驟二：顏色線性插值（`ft_lerp_color`）
+
+畫線時，起點和終點可能是不同顏色（高度不同），  
+需要在線段上做顏色漸變。
+
+```c
+int ft_lerp_color(int c1, int c2, double t)
+{
+    int r, g, b;
+
+    // 把 32 位元顏色拆成 R、G、B 三個 8 位元分量
+    // c1 = 0xRRGGBB，所以：
+    //   R = (c1 >> 16) & 0xFF
+    //   G = (c1 >> 8)  & 0xFF
+    //   B =  c1        & 0xFF
+    r = (int)((1 - t) * ((c1 >> 16) & 0xFF) + t * ((c2 >> 16) & 0xFF));
+    g = (int)((1 - t) * ((c1 >> 8)  & 0xFF) + t * ((c2 >> 8)  & 0xFF));
+    b = (int)((1 - t) * (c1 & 0xFF)         + t * (c2 & 0xFF));
+    // 重新組合
+    return ((r << 16) | (g << 8) | b);
+}
+```
+
+#### 步驟三：Bresenham 畫線演算法（`ft_draw_line`）
+
+Bresenham 演算法的核心思想：  
+用整數加減法近似一條直線，避免使用浮點除法。
+
+**誤差累積器原理：**
+
+```
+想畫從 (0,0) 到 (5,2) 的直線：
+理論上 y = 2x/5，每步 x+1 時 y 增加 2/5
+
+Bresenham 的做法：
+  維護一個誤差值 err = dx - dy = 5 - 2 = 3
+  每步：
+    若 2*err > -dy → 在 X 方向步進，err -= dy
+    若 2*err < dx  → 在 Y 方向步進，err += dx
+  兩個條件在同一步可以都觸發（對角線步）
+```
+
+```c
+// 初始化 Bresenham 狀態
+static t_line ft_line_init(t_point p0, t_point p1)
+{
+    t_line l;
+
+    l.x  = (int)round(p0.x);       // 起點（取整）
+    l.y  = (int)round(p0.y);
+    l.dx = abs((int)round(p1.x) - l.x);  // X 距離（絕對值）
+    l.dy = abs((int)round(p1.y) - l.y);  // Y 距離（絕對值）
+    l.sx = (p1.x > p0.x) ? 1 : -1;      // X 步進方向
+    l.sy = (p1.y > p0.y) ? 1 : -1;      // Y 步進方向
+    l.err = l.dx - l.dy;                 // 初始誤差
+    l.steps = (l.dx > l.dy) ? l.dx : l.dy;  // 總步數
+    l.c0 = p0.color;
+    l.c1 = p1.color;
+    return (l);
+}
+
+void ft_draw_line(t_fdf *fdf, t_point p0, t_point p1)
+{
+    t_line l;
+    int    e2;
+    int    i;
+    double t;
+
+    l = ft_line_init(p0, p1);
+    i = 0;
+    while (1)
+    {
+        // 計算插值比例並畫像素
+        t = (l.steps > 0) ? (double)i / (double)l.steps : 0.0;
+        ft_pixel_put(&fdf->img, l.x, l.y, ft_lerp_color(l.c0, l.c1, t));
+
+        // 到達終點，停止
+        if (l.x == (int)round(p1.x) && l.y == (int)round(p1.y))
+            break;
+
+        e2 = 2 * l.err;
+        if (e2 > -l.dy)     // X 方向步進
+        {
+            l.err -= l.dy;
+            l.x += l.sx;
+        }
+        if (e2 < l.dx)      // Y 方向步進
+        {
+            l.err += l.dx;
+            l.y += l.sy;
+        }
+        i++;
+    }
+}
+```
+
+#### 步驟四：渲染整張地圖（`ft_render`）
+
+```c
+void ft_render(t_fdf *fdf)
+{
+    int     row, col;
+    t_point curr, next;
+
+    // 清空影像緩衝（全部填黑）
+    ft_bzero(fdf->img.addr, WIN_W * WIN_H * (fdf->img.bpp / 8));
+
+    // 遍歷所有格點
+    row = 0;
+    while (row < fdf->map->rows)
+    {
+        col = 0;
+        while (col < fdf->map->cols)
+        {
+            curr = ft_project(col, row, fdf);
+
+            // 連接右鄰格點（水平邊）
+            if (col + 1 < fdf->map->cols)
+            {
+                next = ft_project(col + 1, row, fdf);
+                ft_draw_line(fdf, curr, next);
+            }
+            // 連接下鄰格點（垂直邊）
+            if (row + 1 < fdf->map->rows)
+            {
+                next = ft_project(col, row + 1, fdf);
+                ft_draw_line(fdf, curr, next);
+            }
+            col++;
+        }
+        row++;
+    }
+
+    // 把離屏緩衝推送到螢幕
+    mlx_put_image_to_window(fdf->mlx, fdf->win, fdf->img.ptr, 0, 0);
+}
+```
+
+**為什麼只連右鄰和下鄰，而不連四個方向？**  
+如果連接所有方向，每條邊會被畫兩次（浪費效能）。  
+只連右（→）和下（↓），每條邊剛好被畫一次。
 
 ---
 
-### Step 6 · ft_hooks.c — 键盘交互
+### 5.5 鍵盤事件 `ft_hooks.c`
 
-键盘处理函数在按键后更新相机参数，再调用 `ft_render` 重绘。
+#### MiniLibX 事件系統
+
+MLX 的事件是透過 `mlx_hook` 函式綁定的：
+
+```c
+mlx_hook(win, event_id, event_mask, handler_function, param);
+```
+
+| 事件 ID | 含義 | 掩碼 |
+|---------|------|------|
+| 2 | KeyPress（按下鍵盤） | `1L << 0` |
+| 17 | DestroyNotify（關閉視窗按鈕） | `0` |
 
 ```c
 int ft_keypress(int key, t_fdf *fdf)
 {
     if (key == KEY_ESC)
-        ft_close(fdf);
+        ft_close(fdf);            // 關閉程式
     else if (key == KEY_W)
-        fdf->cam.y_off -= MOVE_STEP;
+        fdf->cam.y_off -= MOVE_STEP;  // 向上移動
     else if (key == KEY_S)
-        fdf->cam.y_off += MOVE_STEP;
+        fdf->cam.y_off += MOVE_STEP;  // 向下移動
     else if (key == KEY_A)
-        fdf->cam.x_off -= MOVE_STEP;
+        fdf->cam.x_off -= MOVE_STEP;  // 向左移動
     else if (key == KEY_D)
-        fdf->cam.x_off += MOVE_STEP;
+        fdf->cam.x_off += MOVE_STEP;  // 向右移動
     else if (key == KEY_Q)
-        fdf->cam.z_rot -= ROT_STEP;
+        fdf->cam.z_rot -= ROT_STEP;   // 逆時針旋轉
     else if (key == KEY_E)
-        fdf->cam.z_rot += ROT_STEP;
+        fdf->cam.z_rot += ROT_STEP;   // 順時針旋轉
     else if (key == KEY_PLUS)
-        fdf->cam.zoom *= ZOOM_STEP;
+        fdf->cam.zoom *= ZOOM_STEP;   // 放大
     else if (key == KEY_MINUS)
-        fdf->cam.zoom /= ZOOM_STEP;
+        fdf->cam.zoom /= ZOOM_STEP;   // 縮小
     else if (key == KEY_R)
-        ft_init_cam(fdf);
+        ft_init_cam(fdf);             // 重置相機
     else if (key == KEY_I)
-        fdf->cam.proj = ISO;
+        fdf->cam.proj = ISO;          // 切換等角投影
     else if (key == KEY_P)
-        fdf->cam.proj = PARALLEL;
-    ft_render(fdf);
+        fdf->cam.proj = PARALLEL;     // 切換平行投影
+    ft_render(fdf);   // 每次按鍵都重新渲染
     return (0);
 }
 
@@ -781,327 +970,49 @@ int ft_close(t_fdf *fdf)
 }
 ```
 
-**MLX 事件钩子注册（在 `ft_main.c` 中）：**
-
-```c
-// X11 事件号：2 = KeyPress，17 = DestroyNotify（点击窗口关闭按钮）
-mlx_hook(fdf->win, 2,  1L << 0, ft_keypress, fdf);
-mlx_hook(fdf->win, 17, 0,       ft_close,    fdf);
-```
-
 ---
 
-### Step 7 · ft_render.c — MLX 图像缓冲 + Bresenham 算法
+### 5.6 工具函式 `ft_utils.c`
 
-这是整个 FdF 项目**最核心**的一步，分为两个紧密配合的部分：
-
-#### 7.1 MLX 图像缓冲（Double Buffering）
-
-**为什么不能用 `mlx_pixel_put`？**
-
-`mlx_pixel_put` 每次调用都发起一次 X11 系统调用。
-一张 42×42 的地图有 `42×42×2 ≈ 3528` 条边，每条边平均数十个像素，
-合计数万次系统调用 → **严重闪屏 + 卡死**。
-
-正确做法是**双缓冲（Double Buffering）**：
-
-```
-┌──────────────────────────────────────────────────┐
-│  MLX 内存中的 Image Buffer（看不见的"后台画布"）   │
-│  ft_pixel_put() 在这里一次写入所有像素            │
-└─────────────────────┬────────────────────────────┘
-                      │ mlx_put_image_to_window()
-                      │ 一帧完成后，整张 bitmap 一次性复制到屏幕
-                      ▼
-┌──────────────────────────────────────────────────┐
-│              屏幕窗口（用户可见）                  │
-└──────────────────────────────────────────────────┘
-```
-
-**MLX Image Buffer 关键 API：**
+#### `ft_error` — 輸出錯誤並退出
 
 ```c
-// 1. 在内存中开辟一块 WIN_W × WIN_H 的像素缓冲区
-fdf->img.ptr  = mlx_new_image(fdf->mlx, WIN_W, WIN_H);
-
-// 2. 获取缓冲区的原始内存地址和元数据
-fdf->img.addr = mlx_get_data_addr(
-    fdf->img.ptr,
-    &fdf->img.bpp,     // bits per pixel，通常 = 32
-    &fdf->img.ll,      // line_length：每行占多少字节
-    &fdf->img.endian   // 字节序（0=小端，1=大端）
-);
-```
-
-**像素寻址公式（`ft_pixel_put` 的核心）：**
-
-```
-每个像素 = 4 字节 (bpp=32)
-第 (x, y) 个像素的内存地址：
-    addr + (y * line_length + x * bytes_per_pixel)
-         = addr + (y * ll    + x * bpp/8)
-
-示例：WIN_W=1280, bpp=32, ll=5120
-  像素 (3, 7) 的地址 = addr + (7 * 5120 + 3 * 4) = addr + 35852
-```
-
-**完整实现 `ft_pixel_put`（已在 `ft_utils.c` 中）：**
-
-```c
-void	ft_pixel_put(t_img *img, int x, int y, int color)
+void ft_error(const char *msg)
 {
-    char	*dst;
-
-    // 边界保护：超出屏幕范围直接丢弃，防止缓冲区越界
-    if (x < 0 || x >= WIN_W || y < 0 || y >= WIN_H)
-        return ;
-    dst = img->addr + (y * img->ll + x * (img->bpp / 8));
-    // 将 color（0xRRGGBB 格式整数）直接写入内存
-    *(unsigned int *)dst = color;
+    ft_putstr_fd("Error: ", 2);   // 輸出到 stderr（fd=2）
+    ft_putendl_fd((char *)msg, 2);
+    exit(EXIT_FAILURE);
 }
 ```
 
-> **endian 说明：**
-> 绝大多数 Linux x86-64 系统是小端，`endian=0`，
-> `color` 以 `0x00RRGGBB` 写入即可正确显示。
-> 如果在大端系统上颜色显示异常，需要做字节翻转。
+#### `ft_free_fdf` — 釋放所有資源
 
----
-
-#### 7.2 Bresenham 直线算法（`ft_draw_line`）
-
-##### 算法原理
-
-Bresenham 算法（1962年由 Jack Bresenham 提出）是绘制屏幕直线的**经典整数算法**，
-全程只用整数加减法，无浮点运算，效率极高。
-
-**核心思想：**
-
-给定两端点 P₀(x₀,y₀) 和 P₁(x₁,y₁)，假设 dx ≥ dy（低斜率情形）：
-
-```
-每步沿 X 轴走 1 个像素（主方向），
-维护一个"误差累加器" err，
-用它判断 Y 轴是否在这一步也需要走 1 个像素。
-
-初始：err = dx - dy
-
-每步：
-  e2 = 2 * err
-  if e2 > -dy  →  err -= dy;  x += sx   （沿 X 步进）
-  if e2 <  dx  →  err += dx;  y += sy   （沿 Y 步进）
-
-注意：两个条件可以同时触发（产生对角步进），这是算法正确性的关键。
-```
-
-**各方向（8个象限）通用版：**
-
-通过动态选择 `sx = sign(dx)`、`sy = sign(dy)` 并把 `dx/dy` 取绝对值，
-同一套代码可以处理所有角度的线段：
-
-```
-象限示意（以起点为原点）：
-    ↑ -y
-    │
-    │  dx<0,dy<0    dx>0,dy<0
-    │       ╲   ↑  ╱
-    │        ╲  │ ╱
-────┼──────────\│/──────────▶ +x
-    │          /│╲
-    │         ╱  │  ╲
-    │  dx<0,dy>0    dx>0,dy>0
-    │
-    ↓ +y
-
-sx = (p1.x > p0.x) ? +1 : -1
-sy = (p1.y > p0.y) ? +1 : -1
-```
-
-##### 颜色插值
-
-连线时从 `p0.color` 渐变到 `p1.color`，公式：
-
-```
-步骤总数  steps = max(|dx|, |dy|)
-当前步骤  i     = 0, 1, 2, ..., steps
-混合比例  t     = i / steps          (0.0 → 1.0)
-当前颜色  color = lerp(c0, c1, t)
-
-lerp(c0, c1, t):
-  R = (1-t)*R0 + t*R1
-  G = (1-t)*G0 + t*G1
-  B = (1-t)*B0 + t*B1
-```
-
-##### 辅助结构体 `t_line`（在 `fdf.h` 中定义）
+**釋放順序很重要：** 必須先釋放依賴 `mlx` 的資源，再釋放 `mlx` 本身。
 
 ```c
-// 将 Bresenham 所需的所有状态打包进结构体
-// 使 ft_draw_line 内的每步操作都清晰可读
-typedef struct s_line
+void ft_free_fdf(t_fdf *fdf)
 {
-    int     x;      // 当前像素 X
-    int     y;      // 当前像素 Y
-    int     dx;     // |x1 - x0|
-    int     dy;     // |y1 - y0|
-    int     sx;     // X 步进方向：+1 或 -1
-    int     sy;     // Y 步进方向：+1 或 -1
-    int     err;    // 误差累加器，初始值 = dx - dy
-    int     steps;  // 总步数 = max(dx, dy)，用于颜色插值分母
-    int     c0;     // 起点颜色
-    int     c1;     // 终点颜色
-}   t_line;
-```
-
-##### 完整实现（`ft_render.c`）
-
-```c
-/*
-** ft_line_init — 从两个投影点初始化 t_line。
-** 用 round() 将 double 屏幕坐标转为整数像素，
-** 保证 Bresenham 的纯整数运算路径。
-*/
-static t_line	ft_line_init(t_point p0, t_point p1)
-{
-    t_line  l;
-
-    l.x     = (int)round(p0.x);
-    l.y     = (int)round(p0.y);
-    l.dx    = abs((int)round(p1.x) - l.x);
-    l.dy    = abs((int)round(p1.y) - l.y);
-    l.sx    = (p1.x > p0.x) ? 1 : -1;
-    l.sy    = (p1.y > p0.y) ? 1 : -1;
-    l.err   = l.dx - l.dy;           // 初始误差 = dx - dy
-    l.steps = (l.dx > l.dy) ? l.dx : l.dy;
-    l.c0    = p0.color;
-    l.c1    = p1.color;
-    return (l);
-}
-
-/*
-** ft_draw_line — Bresenham 直线算法 + 线性颜色插值
-**
-** 每次循环：
-**   1. 用当前步骤比例 t = i/steps 计算插值颜色，写入像素
-**   2. 检查终止条件（到达终点）
-**   3. e2 = 2*err
-**      if e2 > -dy  →  err -= dy;  x += sx   (沿主轴步进)
-**      if e2 <  dx  →  err += dx;  y += sy   (沿次轴步进)
-**   两个 if 均不用 else：对角步进时两者都执行
-*/
-void	ft_draw_line(t_fdf *fdf, t_point p0, t_point p1)
-{
-    t_line  l;
-    int     e2;
-    int     i;
-    double  t;
-
-    l = ft_line_init(p0, p1);
-    i = 0;
-    while (1)
+    if (!fdf)
+        return;
+    if (fdf->img.ptr)
+        mlx_destroy_image(fdf->mlx, fdf->img.ptr);  // 先釋放影像
+    if (fdf->win)
+        mlx_destroy_window(fdf->mlx, fdf->win);      // 再釋放視窗
+    if (fdf->mlx)
     {
-        t = (l.steps > 0) ? (double)i / (double)l.steps : 0.0;
-        ft_pixel_put(&fdf->img, l.x, l.y, ft_lerp_color(l.c0, l.c1, t));
-        if (l.x == (int)round(p1.x) && l.y == (int)round(p1.y))
-            break ;
-        e2 = 2 * l.err;
-        if (e2 > -l.dy)          // 沿 X 步进
-        {
-            l.err -= l.dy;
-            l.x   += l.sx;
-        }
-        if (e2 < l.dx)           // 沿 Y 步进
-        {
-            l.err += l.dx;
-            l.y   += l.sy;
-        }
-        i++;
+        mlx_destroy_display(fdf->mlx);               // 關閉 X11 連線
+        free(fdf->mlx);                              // 釋放 mlx 結構
     }
+    ft_free_map(fdf->map);  // 釋放地圖
+    free(fdf);              // 釋放主結構
 }
-```
-
-##### 逐步追踪示例
-
-```
-绘制从 P0(0,0) 到 P1(4,2) 的线段：
-  dx=4, dy=2, sx=+1, sy=+1, err=2, steps=4
-
-步骤  (x,y)  err   e2   e2>-dy?  e2<dx?   操作
-  0   (0,0)   2     4    yes(4>-2) yes(4<4?) no → err-=2, x+=1  → err=0
-  1   (1,0)   0     0    no(0>-2)  yes(0<4) → err+=4, y+=1      → err=4
-      → 等等，e2=0: 0>-2? yes → err-=2=−2, x+=1
-                    0<4?  yes → err+=4=2,  y+=1
-  2   (2,1)   2     4    yes → err-=2=0, x+=1
-              0     0    yes(0>-2) yes(0<4) → err+=4=4, y+=1
-  3   (3,2)   4     8    yes → err-=2=2, x+=1
-  4   (4,2) ← 到达终点，结束
-
-最终路径：(0,0)→(1,0)→(2,1)→(3,1)→(4,2) ✓
 ```
 
 ---
 
-#### 7.3 渲染循环（`ft_render`）
+### 5.7 程式入口 `ft_main.c`
 
 ```c
-void	ft_render(t_fdf *fdf)
-{
-    int     row;
-    int     col;
-    t_point curr;
-    t_point next;
-
-    // 1. 用黑色清空整个图像缓冲（ft_bzero 比 ft_memset 更语义明确）
-    ft_bzero(fdf->img.addr, WIN_W * WIN_H * (fdf->img.bpp / 8));
-
-    // 2. 遍历所有格子，每个格子向右（→）和向下（↓）各连一条线
-    row = 0;
-    while (row < fdf->map->rows)
-    {
-        col = 0;
-        while (col < fdf->map->cols)
-        {
-            curr = ft_project(col, row, fdf);
-            if (col + 1 < fdf->map->cols)       // 连右邻居
-            {
-                next = ft_project(col + 1, row, fdf);
-                ft_draw_line(fdf, curr, next);
-            }
-            if (row + 1 < fdf->map->rows)       // 连下邻居
-            {
-                next = ft_project(col, row + 1, fdf);
-                ft_draw_line(fdf, curr, next);
-            }
-            col++;
-        }
-        row++;
-    }
-
-    // 3. 一帧画完，整张 bitmap 一次性推送到窗口（无闪屏）
-    mlx_put_image_to_window(fdf->mlx, fdf->win, fdf->img.ptr, 0, 0);
-}
-```
-
-**为什么只连右邻和下邻，而不连所有 4 个方向？**
-
-```
-格子 (col, row) 只负责连：
-  → (col+1, row)   右邻
-  ↓ (col, row+1)   下邻
-
-这样每条边只被画一次，不重复：
-  (0,0)→(1,0) 由 (0,0) 画
-  (1,0)→(0,0) 不需要，因为 (1,0) 已经连了 (2,0)
-边缘格子（最后一列/最后一行）的条件 col+1 < cols / row+1 < rows 自动排除越界。
-```
-
----
-
-### Step 8 · ft_main.c — 程序入口与 MLX 初始化
-
-```c
-#include "fdf.h"
-
 static t_fdf *ft_init_fdf(const char *file)
 {
     t_fdf *fdf;
@@ -1109,20 +1020,31 @@ static t_fdf *ft_init_fdf(const char *file)
     fdf = ft_calloc(1, sizeof(t_fdf));
     if (!fdf)
         ft_error("malloc failed");
-    fdf->map = ft_parse_map(file);              // 解析地图
-    fdf->mlx = mlx_init();                      // 建立 X-Server 连接
+
+    // 1. 解析地圖
+    fdf->map = ft_parse_map(file);
+
+    // 2. 初始化 MiniLibX（建立 X11 連線）
+    fdf->mlx = mlx_init();
     if (!fdf->mlx)
         ft_error("mlx_init failed");
+
+    // 3. 建立視窗
     fdf->win = mlx_new_window(fdf->mlx, WIN_W, WIN_H, WIN_TITLE);
     if (!fdf->win)
         ft_error("mlx_new_window failed");
-    fdf->img.ptr  = mlx_new_image(fdf->mlx, WIN_W, WIN_H);
+
+    // 4. 建立離屏影像緩衝
+    fdf->img.ptr = mlx_new_image(fdf->mlx, WIN_W, WIN_H);
     if (!fdf->img.ptr)
         ft_error("mlx_new_image failed");
-    // 获取图像缓冲内存地址（双缓冲的关键）
+
+    // 5. 取得像素記憶體指標（必須在 mlx_new_image 之後呼叫）
     fdf->img.addr = mlx_get_data_addr(fdf->img.ptr,
                         &fdf->img.bpp, &fdf->img.ll, &fdf->img.endian);
-    ft_init_cam(fdf);                           // 初始化相机
+
+    // 6. 初始化相機（計算初始 zoom 和偏移）
+    ft_init_cam(fdf);
     return (fdf);
 }
 
@@ -1133,89 +1055,111 @@ int main(int argc, char **argv)
     if (argc != 2)
         ft_error("Usage: ./fdf <map.fdf>");
     fdf = ft_init_fdf(argv[1]);
-    mlx_hook(fdf->win, 2,  1L << 0, ft_keypress, fdf);
-    mlx_hook(fdf->win, 17, 0,       ft_close,    fdf);
+
+    // 綁定事件處理函式
+    mlx_hook(fdf->win, 2, 1L << 0, ft_keypress, fdf); // 鍵盤
+    mlx_hook(fdf->win, 17, 0, ft_close, fdf);          // 視窗關閉
+
+    // 第一次渲染
     ft_render(fdf);
+
+    // 進入事件迴圈（此函式不會返回）
     mlx_loop(fdf->mlx);
     return (0);
 }
 ```
 
-**MLX 初始化流程图：**
-
-```
-mlx_init()
-    └─▶ 返回 mlx 实例指针（建立与 X-Server 的连接）
-
-mlx_new_window(mlx, W, H, title)
-    └─▶ 返回窗口指针，在屏幕上创建一个 W×H 的窗口
-
-mlx_new_image(mlx, W, H)
-    └─▶ 在内存中分配一块 W×H 的像素缓冲区（不显示）
-
-mlx_get_data_addr(img, &bpp, &ll, &endian)
-    └─▶ 返回缓冲区首地址 addr
-        bpp = 每像素位数（通常 32），用于计算字节偏移
-        ll  = 每行字节数（line_length），用于计算行偏移
-        像素地址 = addr + (y * ll + x * bpp/8)
-
-ft_render(fdf)         ← 首次绘制
-mlx_loop(mlx)          ← 进入事件循环，阻塞等待键盘/窗口事件
-```
+**`mlx_loop` 的作用：**  
+啟動 X11 事件迴圈，不斷等待和分派事件（鍵盤、滑鼠、視窗關閉等）。  
+這個函式永遠不會返回，所以 `return (0)` 只是為了滿足編譯器。
 
 ---
 
-## 7. 实现指南：Bonus 部分
+## 6. Bonus 部分：逐步實作
 
-> Bonus 源文件在 `bonus/`，头文件 `includes/fdf_bonus.h`，编译目标 `fdf_bonus`。
-> 编译：`make bonus` → 运行：`./fdf_bonus <map.fdf>`
+Bonus 部分在強制部分的基礎上增加以下功能：
 
-### Bonus 功能总览
-
-| 功能 | 键/操作 | 说明 |
-|------|---------|------|
-| **X 轴倾斜** | J / K | 向前/向后倾斜视角 |
-| **Y 轴偏转** | U / O | 左/右偏转视角 |
-| **Z 轴旋转** | Q / E | 水平旋转（与 mandatory 相同）|
-| **CONIC 投影** | C | 骑士斜二测画法（30°, 0.5×深度）|
-| **颜色方案循环** | G | FIRE → GREY → HEAT → FIRE |
-| **鼠标拖拽旋转** | 左键拖拽 | 水平→Z轴，垂直→X轴 |
-| **鼠标滚轮缩放** | 滚轮上/下 | 放大/缩小 |
-| **HUD 叠加层** | 自动显示 | 控制提示 + 当前 Zoom / 投影 / 配色 |
+| 功能 | 實作位置 |
+|------|----------|
+| X 軸 / Y 軸旋轉 | `ft_project_bonus.c` |
+| CONIC 斜二測投影 | `ft_project_bonus.c` |
+| 鼠標拖拽旋轉 | `ft_hooks_bonus.c` |
+| 滾輪縮放 | `ft_hooks_bonus.c` |
+| 三種配色方案 | `ft_utils_bonus.c` |
+| HUD 狀態顯示 | `ft_render_bonus.c` |
 
 ---
 
-### Bonus Step 1 · `includes/fdf_bonus.h` — 扩展头文件
+### 6.1 頭文件 `fdf_bonus.h`
 
-相比强制版 `fdf.h`，bonus 头文件新增了以下内容：
+在強制版 `fdf.h` 的基礎上，添加以下內容：
 
-**`t_cam` 新字段：**
+**新常數：**
+
+```c
+/* Bonus 新增按鍵 */
+# define KEY_J  106   // X 軸正向旋轉
+# define KEY_K  107   // X 軸負向旋轉
+# define KEY_U  117   // Y 軸負向旋轉
+# define KEY_O  111   // Y 軸正向旋轉
+# define KEY_C  99    // CONIC 投影
+# define KEY_G  103   // 切換配色方案
+
+/* X11 滑鼠事件號 */
+# define EVT_BTN_PRESS    4   // ButtonPress（含滾輪）
+# define EVT_BTN_RELEASE  5   // ButtonRelease
+# define EVT_MOUSE_MOVE   6   // MotionNotify（滑鼠移動）
+
+/* 滑鼠按鍵代碼 */
+# define BTN_LEFT         1
+# define BTN_SCROLL_UP    4   // 滾輪向上
+# define BTN_SCROLL_DOWN  5   // 滾輪向下
+
+/* 投影模式（新增 CONIC） */
+# define ISO      0
+# define PARALLEL 1
+# define CONIC    2
+
+/* 配色方案 */
+# define SCHEME_FIRE  0
+# define SCHEME_GREY  1
+# define SCHEME_HEAT  2
+
+/* 各配色的顏色端點 */
+# define FIRE_LOW   0x0000FF  // 藍
+# define FIRE_HIGH  0xFF4500  // 橙紅
+# define GREY_LOW   0x303030  // 深灰
+# define GREY_HIGH  0xFFFFFF  // 白
+# define HEAT_LOW   0x00FFFF  // 青
+# define HEAT_HIGH  0xFFFF00  // 黃
+```
+
+**擴充後的 `t_cam`：**
+
 ```c
 typedef struct s_cam
 {
     double  zoom;
     double  x_off;
     double  y_off;
-    double  x_rot;         // ← NEW: X轴旋转角（J/K键）
-    double  y_rot;         // ← NEW: Y轴旋转角（U/O键）
+    double  x_rot;         // ← 新增：X 軸旋轉角
+    double  y_rot;         // ← 新增：Y 軸旋轉角
     double  z_rot;
     int     proj;          // 0=ISO, 1=PARALLEL, 2=CONIC
-    int     color_scheme;  // ← NEW: 0=FIRE, 1=GREY, 2=HEAT
+    int     color_scheme;  // ← 新增：配色方案
 }   t_cam;
 ```
 
-**`t_mouse` 拖拽状态：**
+**新增 `t_mouse`：**
+
 ```c
 typedef struct s_mouse
 {
-    int     drag;     // 1 = 正在拖拽，0 = 未拖拽
-    int     prev_x;   // 上一帧鼠标 X 坐标
-    int     prev_y;   // 上一帧鼠标 Y 坐标
+    int     drag;
+    int     prev_x;
+    int     prev_y;
 }   t_mouse;
-```
 
-**`t_fdf` 增加 `t_mouse` 字段：**
-```c
 typedef struct s_fdf
 {
     void    *mlx;
@@ -1223,130 +1167,229 @@ typedef struct s_fdf
     t_img   img;
     t_map   *map;
     t_cam   cam;
-    t_mouse mouse;  // ← NEW
+    t_mouse mouse;  // ← 新增
 }   t_fdf;
 ```
 
 ---
 
-### Bonus Step 2 · `bonus/ft_project_bonus.c` — 三轴旋转 + 三种投影
+### 6.2 三軸旋轉 `ft_project_bonus.c`
 
-#### 三轴旋转原理
+#### 三維旋轉矩陣原理
 
-强制版只旋转 Z 轴（平面旋转）。Bonus 版依次施加三次旋转矩阵：
+在三維空間中，繞各軸旋轉的矩陣如下：
 
 ```
-原始坐标 (x, y, z)
-    │
-    ▼ Z轴旋转（ft_rotate_zx 第一步）
-    │  xz =  x·cos(z_rot) - y·sin(z_rot)
-    │  yz =  x·sin(z_rot) + y·cos(z_rot)
-    │
-    ▼ X轴旋转（ft_rotate_zx 第二步，紧接 Z 之后，节省 trig 调用）
-    │  yx =  yz·cos(x_rot) - z·sin(x_rot)
-    │  zx =  yz·sin(x_rot) + z·cos(x_rot)
-    │
-    ▼ Y轴旋转（ft_rotate_y）
-    │  xr =  x·cos(y_rot) + z·sin(y_rot)
-    │  zr = -x·sin(y_rot) + z·cos(y_rot)
-    │
-    ▼ 投影到屏幕 (ft_apply_proj)
+繞 Z 軸旋轉 θ：
+  x' =  x·cos(θ) - y·sin(θ)
+  y' =  x·sin(θ) + y·cos(θ)
+  z' =  z
+
+繞 X 軸旋轉 φ：
+  x' =  x
+  y' =  y·cos(φ) - z·sin(φ)
+  z' =  y·sin(φ) + z·cos(φ)
+
+繞 Y 軸旋轉 ψ：
+  x' =  x·cos(ψ) + z·sin(ψ)
+  y' =  y
+  z' = -x·sin(ψ) + z·cos(ψ)
 ```
 
-**实现（`ft_rotate_zx`）：**
+**實作：先 Z 後 X，合併在一個函式**
+
 ```c
 static void ft_rotate_zx(double *x, double *y, double *z, t_cam *cam)
 {
-    double  xz;
-    double  yz;
-    double  yx;
-    double  zx;
+    double xz, yz, yx, zx;
 
+    // 先做 Z 軸旋轉
     xz = *x * cos(cam->z_rot) - *y * sin(cam->z_rot);
     yz = *x * sin(cam->z_rot) + *y * cos(cam->z_rot);
+
+    // 再做 X 軸旋轉（作用在 Z 旋轉後的 y 和 z 上）
     yx = yz * cos(cam->x_rot) - *z * sin(cam->x_rot);
     zx = yz * sin(cam->x_rot) + *z * cos(cam->x_rot);
+
     *x = xz;
     *y = yx;
     *z = zx;
 }
 ```
 
-#### 三种投影模式（`ft_apply_proj`）
+**為什麼把 Z 和 X 合併？**  
+兩次旋轉可以用不同的中間變數一起算，  
+避免兩次獨立函式呼叫時需要重新讀取被修改的 `*y`。
+
+**Y 軸旋轉（獨立函式）：**
+
+```c
+static void ft_rotate_y(double *x, double *z, t_cam *cam)
+{
+    double xr, zr;
+
+    xr =  (*x) * cos(cam->y_rot) + (*z) * sin(cam->y_rot);
+    zr = -(*x) * sin(cam->y_rot) + (*z) * cos(cam->y_rot);
+    *x = xr;
+    *z = zr;
+}
+```
+
+#### CONIC 投影（斜二測畫法）
+
+斜二測畫法是一種繪圖技術：
+- XY 平面保持正交（正視圖）
+- Z 軸以 30° 角投影，長度縮為 0.5 倍
 
 ```
-ISO (isometric)           PARALLEL (top-down)       CONIC (cavalier oblique)
-─────────────────────     ──────────────────────     ─────────────────────────
-px = (x-y)·cos30·zoom     px = x·zoom               px = x·zoom + z·0.5·cos30
-py = (x+y)·sin30·zoom-z   py = y·zoom               py = y·zoom - z·0.5·sin30
+screen_x = x·zoom + z·0.5·cos(30°) + x_off
+screen_y = y·zoom - z·0.5·sin(30°) + y_off
 ```
 
-**CONIC（骑士斜二测画法）**：Z 轴以 30° 角、0.5 倍深度投影到屏幕，
-产生一种"印刷立体图"的独特视觉效果，有别于 ISO 的对称式透视。
+```c
+static void ft_apply_proj(t_point *p, double x, double y,
+                          double z, t_fdf *fdf)
+{
+    double zoom = fdf->cam.zoom;
+    double c30  = cos(M_PI / 6.0);  // cos(30°) ≈ 0.866
+
+    if (fdf->cam.proj == ISO)
+    {
+        p->x = (x - y) * c30 * zoom + fdf->cam.x_off;
+        p->y = (x + y) * sin(M_PI / 6.0) * zoom - z + fdf->cam.y_off;
+    }
+    else if (fdf->cam.proj == PARALLEL)
+    {
+        p->x = x * zoom + fdf->cam.x_off;
+        p->y = y * zoom + fdf->cam.y_off;
+    }
+    else  // CONIC（斜二測）
+    {
+        p->x = x * zoom + z * 0.5 * c30 + fdf->cam.x_off;
+        p->y = y * zoom - z * 0.5 * sin(M_PI / 6.0) + fdf->cam.y_off;
+    }
+    p->z = z;
+}
+```
+
+#### 完整投影流程
+
+```c
+t_point ft_project(int col, int row, t_fdf *fdf)
+{
+    t_point p;
+    double  x, y, z;
+
+    // 步驟 1：以地圖中心為原點
+    x = col - fdf->map->cols / 2.0;
+    y = row - fdf->map->rows / 2.0;
+    z = ft_z_scale(fdf, row, col);
+
+    // 步驟 2：三軸旋轉
+    ft_rotate_zx(&x, &y, &z, &fdf->cam);
+    ft_rotate_y(&x, &z, &fdf->cam);
+
+    // 步驟 3：取得顏色
+    p.color = ft_get_color(col, row, fdf);
+
+    // 步驟 4：投影到螢幕
+    ft_apply_proj(&p, x, y, z, fdf);
+    return (p);
+}
+```
 
 ---
 
-### Bonus Step 3 · `bonus/ft_hooks_bonus.c` — 键盘 + 鼠标
+### 6.3 鍵盤＋滑鼠事件 `ft_hooks_bonus.c`
 
-#### 键盘（`ft_keypress`）
+#### 鍵盤（新增三軸旋轉和 CONIC 投影）
 
 ```c
-int ft_keypress(int key, t_fdf *fdf)
+static void ft_key_rot(int key, t_fdf *fdf)
 {
-    if (key == KEY_ESC) ft_close(fdf);
-    if (key == KEY_R)   ft_init_cam(fdf);  // 重置所有轴
-    ft_key_move(key, fdf);   // WASD + +-
-    ft_key_rot(key, fdf);    // QE + JK + UO
-    ft_key_proj(key, fdf);   // I P C G
+    if (key == KEY_Q)
+        fdf->cam.z_rot -= ROT_STEP;  // Z 軸（與強制部分相同）
+    else if (key == KEY_E)
+        fdf->cam.z_rot += ROT_STEP;
+    else if (key == KEY_J)
+        fdf->cam.x_rot += ROT_STEP;  // X 軸：向前傾
+    else if (key == KEY_K)
+        fdf->cam.x_rot -= ROT_STEP;  // X 軸：向後仰
+    else if (key == KEY_U)
+        fdf->cam.y_rot -= ROT_STEP;  // Y 軸：向左偏
+    else if (key == KEY_O)
+        fdf->cam.y_rot += ROT_STEP;  // Y 軸：向右偏
+}
+
+static void ft_key_proj(int key, t_fdf *fdf)
+{
+    if (key == KEY_I)
+        fdf->cam.proj = ISO;
+    else if (key == KEY_P)
+        fdf->cam.proj = PARALLEL;
+    else if (key == KEY_C)
+        fdf->cam.proj = CONIC;
+    else if (key == KEY_G)
+        // (color_scheme + 1) % 3 → 0→1→2→0 循環
+        fdf->cam.color_scheme = (fdf->cam.color_scheme + 1) % 3;
+}
+```
+
+#### 滑鼠事件
+
+**事件 4 (ButtonPress)：** 含滾輪和按鍵按下
+
+```c
+int ft_mouse_press(int btn, int x, int y, t_fdf *fdf)
+{
+    if (btn == BTN_SCROLL_UP)         // 滾輪向上 → 放大
+        fdf->cam.zoom *= ZOOM_STEP;
+    else if (btn == BTN_SCROLL_DOWN)  // 滾輪向下 → 縮小
+        fdf->cam.zoom /= ZOOM_STEP;
+    else if (btn == BTN_LEFT)         // 左鍵按下 → 開始拖拽
+    {
+        fdf->mouse.drag = 1;
+        fdf->mouse.prev_x = x;
+        fdf->mouse.prev_y = y;
+        return (0);   // 不重新渲染（只是記錄起始位置）
+    }
     ft_render(fdf);
     return (0);
 }
 ```
 
-新增旋转键（`ft_key_rot`）：
+**事件 5 (ButtonRelease)：** 停止拖拽
 
-| 键 | 操作 |
-|----|------|
-| Q | Z轴 − (顺时针) |
-| E | Z轴 + (逆时针) |
-| J | X轴 + (向前倾斜) |
-| K | X轴 − (向后倾斜) |
-| U | Y轴 − (向左偏转) |
-| O | Y轴 + (向右偏转) |
-
-新增投影键（`ft_key_proj`）：
-
-| 键 | 操作 |
-|----|------|
-| I | ISO 模式 |
-| P | PARALLEL 模式 |
-| C | CONIC 模式 |
-| G | 循环颜色方案 FIRE→GREY→HEAT |
-
-#### 鼠标（三个事件钩子）
-
-```
-MLX 事件号    处理函数               功能
-──────────    ──────────────────     ────────────────────────────
-4 (ButtonPress)   ft_mouse_press     滚轮4/5 → 缩放；左键1 → 开始拖拽
-5 (ButtonRelease) ft_mouse_release   左键1 → 停止拖拽
-6 (MotionNotify)  ft_mouse_move      拖拽中：ΔX→z_rot，ΔY→x_rot
+```c
+int ft_mouse_release(int btn, int x, int y, t_fdf *fdf)
+{
+    (void)x;
+    (void)y;
+    if (btn == BTN_LEFT)
+        fdf->mouse.drag = 0;  // 鬆開左鍵時停止拖拽
+    return (0);
+}
 ```
 
-**拖拽旋转实现（`ft_mouse_move`）：**
+**為什麼需要 ButtonRelease 事件？**  
+如果沒有這個事件，使用者鬆開滑鼠後移動游標，  
+`drag` 仍然為 1，視圖會繼續旋轉（不是我們想要的行為）。
+
+**事件 6 (MotionNotify)：** 滑鼠移動時的拖拽旋轉
+
 ```c
 int ft_mouse_move(int x, int y, t_fdf *fdf)
 {
-    int dx;
-    int dy;
+    int dx, dy;
 
-    if (!fdf->mouse.drag)
+    if (!fdf->mouse.drag)   // 不在拖拽狀態，忽略
         return (0);
-    dx = x - fdf->mouse.prev_x;
-    dy = y - fdf->mouse.prev_y;
-    fdf->cam.z_rot += dx * 0.01;   // 水平拖动 → Z轴旋转
-    fdf->cam.x_rot += dy * 0.01;   // 垂直拖动 → X轴倾斜
-    fdf->mouse.prev_x = x;
+    dx = x - fdf->mouse.prev_x;  // 水平移動量
+    dy = y - fdf->mouse.prev_y;  // 垂直移動量
+    // 0.01 rad/pixel 的靈敏度
+    fdf->cam.z_rot += dx * 0.01;  // 水平拖動 → Z 軸旋轉
+    fdf->cam.x_rot += dy * 0.01;  // 垂直拖動 → X 軸傾斜
+    fdf->mouse.prev_x = x;        // 更新記錄位置
     fdf->mouse.prev_y = y;
     ft_render(fdf);
     return (0);
@@ -1355,43 +1398,123 @@ int ft_mouse_move(int x, int y, t_fdf *fdf)
 
 ---
 
-### Bonus Step 4 · `bonus/ft_render_bonus.c` — HUD 叠加层
+### 6.4 渲染 + HUD `ft_render_bonus.c`
 
-#### HUD 渲染原理
+#### HUD（抬頭顯示器）原理
 
-`mlx_string_put` 直接将文字绘制到**窗口**（不经过图像缓冲区），
-所以必须在 `mlx_put_image_to_window` **之后**调用：
+`mlx_string_put` 直接把文字畫在**視窗**上（不是影像緩衝區），  
+所以它必須在 `mlx_put_image_to_window` **之後**呼叫，  
+否則影像緩衝送到螢幕時會覆蓋文字。
 
 ```c
 void ft_render(t_fdf *fdf)
 {
-    // 1. 清空图像缓冲
+    int row, col;
+
+    // 步驟 1：清空影像緩衝
     ft_bzero(fdf->img.addr, WIN_W * WIN_H * (fdf->img.bpp / 8));
-    // 2. 遍历所有格子画线
-    ...
-    // 3. 将缓冲推送到屏幕
+
+    // 步驟 2：畫所有邊線
+    row = 0;
+    while (row < fdf->map->rows)
+    {
+        col = 0;
+        while (col < fdf->map->cols)
+            ft_draw_edges(fdf, col++, row);
+        row++;
+    }
+
+    // 步驟 3：把影像緩衝送到螢幕
     mlx_put_image_to_window(fdf->mlx, fdf->win, fdf->img.ptr, 0, 0);
-    // 4. 在屏幕顶层叠加 HUD（不受像素缓冲影响）
-    ft_draw_hud(fdf);
+
+    // 步驟 4：在螢幕最上層疊加 HUD 文字
+    ft_draw_hud(fdf);   // ← 必須在 put_image 之後！
 }
 ```
 
-#### HUD 内容
+**HUD 狀態顯示（動態字串）：**
 
-```
-y=20  [灰色] WASD:pan  QE:spin  JK:tilt  UO:yaw  +-:zoom  R:reset
-y=40  [灰色] I:iso  P:parallel  C:conic  G:color  drag:rotate  ESC:quit
-y=60  [黄色] Zoom: <当前缩放值>
-y=80  [黄色] Mode: ISO / PARALLEL / CONIC
-y=100 [黄色] Color: FIRE / GREY / HEAT
-```
+```c
+static void ft_hud_state(t_fdf *fdf)
+{
+    char *proj_s;
+    char *col_s;
+    char *zoom_s;
+    char *zoom_l;
 
-动态状态由 `ft_hud_state` 生成，使用 `ft_itoa` 和 `ft_strjoin`
-拼接 zoom 字符串后显示，用完立即 `free`（无泄漏）。
+    // 選擇顯示文字
+    if (fdf->cam.proj == ISO)         proj_s = "Mode: ISO";
+    else if (fdf->cam.proj == PARALLEL) proj_s = "Mode: PARALLEL";
+    else                              proj_s = "Mode: CONIC";
+
+    if (fdf->cam.color_scheme == SCHEME_GREY)     col_s = "Color: GREY";
+    else if (fdf->cam.color_scheme == SCHEME_HEAT) col_s = "Color: HEAT";
+    else                                           col_s = "Color: FIRE";
+
+    // zoom 需要轉字串（動態配置，用完要 free）
+    zoom_s = ft_itoa((int)fdf->cam.zoom);
+    if (!zoom_s)
+        return;
+    zoom_l = ft_strjoin("Zoom: ", zoom_s);
+    free(zoom_s);
+    if (zoom_l)
+    {
+        mlx_string_put(fdf->mlx, fdf->win, 10, 60, 0xFFFF00, zoom_l);
+        free(zoom_l);
+    }
+    mlx_string_put(fdf->mlx, fdf->win, 10, 80,  0xFFFF00, proj_s);
+    mlx_string_put(fdf->mlx, fdf->win, 10, 100, 0xFFFF00, col_s);
+}
+```
 
 ---
 
-### Bonus Step 5 · `bonus/ft_main_bonus.c` — 完整事件钩子注册
+### 6.5 工具函式（含配色）`ft_utils_bonus.c`
+
+#### 三種配色方案（`ft_scheme_color`）
+
+```c
+int ft_scheme_color(int z, t_map *map, int scheme)
+{
+    double t;
+    int    low, high;
+
+    if (map->z_max == map->z_min)
+        return (0xFFFFFF);
+
+    // t 是高度的歸一化值：0 = 最低，1 = 最高
+    t = (double)(z - map->z_min) / (double)(map->z_max - map->z_min);
+
+    if (scheme == SCHEME_GREY)
+    {
+        low  = GREY_LOW;   // 0x303030（深灰）
+        high = GREY_HIGH;  // 0xFFFFFF（白）
+    }
+    else if (scheme == SCHEME_HEAT)
+    {
+        low  = HEAT_LOW;   // 0x00FFFF（青）
+        high = HEAT_HIGH;  // 0xFFFF00（黃）
+    }
+    else  // SCHEME_FIRE（預設）
+    {
+        low  = FIRE_LOW;   // 0x0000FF（藍）
+        high = FIRE_HIGH;  // 0xFF4500（橙紅）
+    }
+    return (ft_lerp_color(low, high, t));
+}
+```
+
+| 配色 | 低點顏色 | 高點顏色 | 視覺效果 |
+|------|---------|---------|---------|
+| FIRE | 藍 `#0000FF` | 橙紅 `#FF4500` | 岩漿流 |
+| GREY | 深灰 `#303030` | 白 `#FFFFFF` | 地形高程圖 |
+| HEAT | 青 `#00FFFF` | 黃 `#FFFF00` | 熱力圖 |
+
+---
+
+### 6.6 程式入口 `ft_main_bonus.c`
+
+Bonus 版注冊了 **5 個** 事件鉤子（強制版只有 2 個）：
 
 ```c
 int main(int argc, char **argv)
@@ -1401,110 +1524,180 @@ int main(int argc, char **argv)
     if (argc != 2)
         ft_error("Usage: ./fdf_bonus <map.fdf>");
     fdf = ft_init_fdf(argv[1]);
-    mlx_hook(fdf->win, 2,  1L << 0, ft_keypress,      fdf); // KeyPress
-    mlx_hook(fdf->win, 17, 0,       ft_close,          fdf); // WM destroy
-    mlx_hook(fdf->win, 4,  1L << 2, ft_mouse_press,    fdf); // ButtonPress
-    mlx_hook(fdf->win, 5,  1L << 3, ft_mouse_release,  fdf); // ButtonRelease
-    mlx_hook(fdf->win, 6,  1L << 6, ft_mouse_move,     fdf); // MotionNotify
+
+    // 事件 2：鍵盤按下
+    mlx_hook(fdf->win, 2,  1L << 0, ft_keypress,     fdf);
+    // 事件 17：視窗關閉按鈕
+    mlx_hook(fdf->win, 17, 0,       ft_close,         fdf);
+    // 事件 4：滑鼠按鍵按下（含滾輪）
+    mlx_hook(fdf->win, EVT_BTN_PRESS,    1L << 2, ft_mouse_press,   fdf);
+    // 事件 5：滑鼠按鍵鬆開
+    mlx_hook(fdf->win, EVT_BTN_RELEASE,  1L << 3, ft_mouse_release, fdf);
+    // 事件 6：滑鼠移動
+    mlx_hook(fdf->win, EVT_MOUSE_MOVE,   1L << 6, ft_mouse_move,    fdf);
+
     ft_render(fdf);
     mlx_loop(fdf->mlx);
     return (0);
 }
 ```
 
-**为什么需要 ButtonRelease 事件？**
-
-如果只有 Press + Motion，当用户释放鼠标后移动指针，
-`drag` 标志仍为 1，视图会继续无意旋转。
-ButtonRelease 将 `drag` 置回 0，确保拖拽语义正确。
+**MLX 事件掩碼（event mask）說明：**  
+掩碼告訴 X11 我們想要監聽哪些事件類型。  
+`1L << 6` = `0x40` = X11 的 `PointerMotionMask`，表示監聽滑鼠移動。
 
 ---
 
-### Bonus 颜色方案详解
+## 7. 核心演算法詳解
 
-| 方案 | 低海拔 (z_min) | 高海拔 (z_max) | 效果 |
-|------|---------------|---------------|------|
-| FIRE | `0x0000FF` (蓝) | `0xFF4500` (橙红) | 岩浆流效果 |
-| GREY | `0x303030` (深灰) | `0xFFFFFF` (白) | 地形高程图 |
-| HEAT | `0x00FFFF` (青) | `0xFFFF00` (黄) | 热力图效果 |
+### 7.1 Bresenham 畫線算法視覺化
 
-颜色由 `ft_scheme_color(z, map, scheme)` 计算，内部调用 `ft_lerp_color`。
-若地图格子有显式颜色（`has_color=1`），则直接使用原始颜色，忽略方案。
+以從 (0, 0) 到 (6, 2) 為例：
 
----
+```
+理論直線：y = 2x/6 = x/3
 
-## 8. 测试与调试 Testing
-
-### 测试地图
-
-```bash
-# 42 校徽（大型地图，测试性能）
-./fdf test_maps/42.fdf
-
-# 火星地形（高度变化剧烈，测试 z_scale）
-./fdf test_maps/mars.fdf
-
-# 金字塔（测试对角线渲染）
-./fdf test_maps/pyramide.fdf
-
-# 平面（所有 Z = 0，测试基础网格）
-./fdf test_maps/flat.fdf
+步驟  x  y  err    2*err   動作
+────  ─  ─  ───    ─────   ─────────────────────────────
+  0   0  0   4       8     畫 (0,0)；8 > -2 → x++, err-=2；8 < 6 → y++, err+=6
+  1   1  1   8       -     畫 (1,1)；...
+...
 ```
 
-### 内存检查
+**記憶口訣：**
+- 若 `2*err > -dy` → X 步進（橫著走）
+- 若 `2*err <  dx` → Y 步進（斜著走）
+- 兩個都滿足 → 對角線步進
+
+### 7.2 等角投影推導
+
+**為什麼等角投影用 cos(30°) 和 sin(30°)？**
+
+等角投影把三條軸等角分布：
+```
+      Y 軸（向上）
+       ↑
+       │
+  X ───┼─── Z
+（左斜）   （右斜）
+```
+
+在二維螢幕上：
+- X 軸對應螢幕左下角方向，角度 210°（= 180° + 30°）
+- Y 軸對應螢幕右下角方向，角度 330°（= 360° - 30°）
+- Z 軸對應螢幕正上方，角度 90°
+
+把 `(x, y)` 投影到螢幕：
+```
+screen_x = x·cos(210°) + y·cos(330°) = -x·cos(30°) + y·cos(30°) = (y - x)·cos(30°)
+screen_y = x·sin(210°) + y·sin(330°) = -x·sin(30°) - y·sin(30°) = -(x + y)·sin(30°)
+```
+
+（螢幕 Y 軸向下，所以正負號會翻轉，配合偏移量 `y_off`）
+
+### 7.3 顏色格式
+
+MiniLibX 使用 **0xAARRGGBB** 格式（A = alpha，通常忽略）：
+
+```
+0xFF4500 = 0x00 FF 45 00
+            A  R  G  B
+
+提取 R：(color >> 16) & 0xFF = 0xFF = 255
+提取 G：(color >> 8)  & 0xFF = 0x45 = 69
+提取 B：color         & 0xFF = 0x00 = 0
+```
+
+---
+
+## 8. 常見錯誤與修正
+
+| 錯誤現象 | 根本原因 | 正確做法 |
+|---------|---------|---------|
+| 地圖渲染在視窗角落 | `x_off`/`y_off` 初始為 0 | `ft_init_cam` 中設為 `WIN_W/2`、`WIN_H/2` |
+| 山峰像「刺蝟」一樣過高 | Z 縮放沒有歸一化 | `z_scale` 除以 `z_range`，乘以地圖尺寸 |
+| 只有橫線沒有直線 | 渲染迴圈只連了右鄰 | 同時連右鄰 `(col+1, row)` 和下鄰 `(col, row+1)` |
+| 最後一行或最後一列缺失 | 迴圈條件寫成 `<= rows` | 改成 `< map->rows`（嚴格小於）|
+| 畫面閃爍 | 直接用 `mlx_pixel_put` | 改用離屏緩衝 + `mlx_put_image_to_window` |
+| GNL 記憶體洩漏 | 每次 `get_next_line` 後未 `free` | 在迴圈末尾 `free(line)` |
+| `ft_split` 記憶體洩漏 | 只釋放了指標陣列，未釋放各元素 | 先 `free(tokens[i])`，再 `free(tokens)` |
+| 全負值地圖 `z_min` 永遠是 0 | `z_min` 初始值為 0，負值被跳過 | 初始化為 `z[0][0]`（或 `INT_MAX`） |
+| HUD 文字被影像覆蓋 | `mlx_string_put` 在 `put_image` 之前呼叫 | 先 `mlx_put_image_to_window`，再 `ft_draw_hud` |
+| 拖拽旋轉不會停止 | 沒有綁定 ButtonRelease 事件 | 新增 `ft_mouse_release` 將 `drag` 設回 0 |
+| `ft_free_fdf` Segfault | 釋放 `mlx` 後還存取 `img.ptr` | 先釋放 img 和 win，再釋放 mlx |
+
+---
+
+## 9. 記憶體管理檢查清單
+
+完成實作後，用 Valgrind 確認沒有記憶體洩漏：
 
 ```bash
-# Linux（推荐）
+# 基本洩漏檢查
 valgrind --leak-check=full --show-leak-kinds=all ./fdf maps/42.fdf
 
-# 检查文件描述符泄漏
+# 追蹤檔案描述符洩漏
 valgrind --track-fds=yes ./fdf maps/42.fdf
 ```
 
-### 边界测试清单
+**逐項確認：**
 
-- [ ] 文件不存在 → 程序应输出 `Error: Cannot open map file` 后退出
-- [ ] 空文件 → 程序应报错，不 Segfault
-- [ ] 每行列数不一致 → 程序应报错退出
-- [ ] 所有 Z = 0（平坦地图）→ 正常渲染网格，无颜色渐变
-- [ ] Z 值为负数 → 正常渲染，低于基准面
-- [ ] 点击窗口 × 按钮 → 程序正常退出，无内存泄漏
-- [ ] 快速连续按键 → 不崩溃
-
----
-
-## 9. 常见错误 Common Bugs
-
-| 错误现象 | 原因 | 解决方案 |
-|----------|------|----------|
-| 渲染结果在窗口角落 | `x_off` / `y_off` 初始化为 0 | `ft_init_cam` 中将偏移设为 `WIN_W/2`、`WIN_H/2` |
-| 山峰过于夸张像"刺猬" | `z_scale` 没有按地图大小归一化 | 在 `ft_z_scale` 中除以 `z_range`，乘以地图尺寸 |
-| 只有横线没有竖线 | 渲染循环只连了右邻，漏掉下邻 | 在内层循环中同时连 `(col+1, row)` 和 `(col, row+1)` |
-| 最后一行/列没有渲染 | `< rows` 写成 `<= rows`（越界） | 检查循环终止条件，使用 `< map->rows` |
-| 画面闪烁 | 直接用 `mlx_pixel_put` 渲染 | 改用 `mlx_new_image` + `addr` 内存写入 + `mlx_put_image_to_window` |
-| GNL 内存泄漏 | 每次 `get_next_line` 后未 `free(line)` | 保证每条 GNL 返回的行都被 `free` 掉 |
-| `ft_split` 后内存泄漏 | 只释放了 `tokens` 指针，未释放各元素 | 先遍历 `free(tokens[i])`，再 `free(tokens)` |
-| `z_min` 初始化为 0 | 对全负值地图 `z_min` 永远不更新 | 初始化为 `map->z[0][0]`，或用 `INT_MAX`/`INT_MIN` |
-| 旋转后图像消失 | 旋转后坐标超出屏幕范围，`ft_pixel_put` 越界保护未生效 | 确认 `ft_pixel_put` 中的边界检查正确 |
+- [ ] `get_next_line` 的每個回傳值都有 `free`
+- [ ] `ft_split` 的每個 token 都有 `free`，指標陣列也有 `free`
+- [ ] `ft_alloc_map` 失敗時呼叫 `ft_free_map` 清理已配置的記憶體
+- [ ] `ft_free_map` 釋放順序：各行陣列 → 指標陣列 → `map` 本身
+- [ ] `ft_free_fdf` 釋放順序：`img` → `win` → `mlx` → `map` → `fdf`
+- [ ] HUD 使用的 `ft_itoa` 和 `ft_strjoin` 的回傳值用完後 `free`
+- [ ] 程式在按 ESC 和點擊視窗 × 按鈕時，都會呼叫 `ft_free_fdf`
 
 ---
 
----
+## 10. 操作快捷鍵總表
+
+### 強制部分（`./fdf`）
+
+| 按鍵 | 功能 |
+|------|------|
+| `W / S` | 畫面向上 / 向下移動 |
+| `A / D` | 畫面向左 / 向右移動 |
+| `Q / E` | 逆時針 / 順時針旋轉（Z 軸）|
+| `+ / -` | 放大 / 縮小 |
+| `R` | 重置相機到初始狀態 |
+| `I` | 等角投影（Isometric）|
+| `P` | 平行投影（Parallel）|
+| `ESC` | 退出程式 |
+
+### Bonus 部分（`./fdf_bonus`）
+
+| 按鍵 / 操作 | 功能 |
+|------------|------|
+| `W / S / A / D` | 平移 |
+| `Q / E` | Z 軸旋轉 |
+| `J / K` | X 軸傾斜（前後）|
+| `U / O` | Y 軸偏轉（左右）|
+| `+ / -` | 縮放 |
+| `R` | 重置所有相機參數 |
+| `I / P / C` | 切換 ISO / PARALLEL / CONIC 投影 |
+| `G` | 循環切換配色方案（FIRE → GREY → HEAT）|
+| 左鍵拖拽 | 旋轉視角（水平 → Z 軸，垂直 → X 軸）|
+| 滾輪 ↑ / ↓ | 放大 / 縮小 |
+| `ESC` 或 × | 退出程式 |
 
 ---
 
-> **✅ 项目全部完成！Mandatory + Bonus**
->
-> **强制部分** (./fdf):
-> - 等距投影（ISO）+ 正交投影（PARALLEL）
-> - Bresenham 直线算法 + 线性颜色插值
-> - WASD 平移 · QE Z旋转 · +- 缩放 · R 复位 · I/P 切换投影
->
-> **Bonus 部分** (./fdf_bonus):
-> - 三轴旋转（Z/X/Y）— J/K X轴, U/O Y轴
-> - 第三投影模式：CONIC（骑士斜二测画法）
-> - 鼠标左键拖拽旋转（ΔX→Z轴, ΔY→X轴）
-> - 鼠标滚轮缩放
-> - HUD 叠加层（控制提示 + Zoom/模式/配色实时显示）
-> - 三种颜色方案循环（G键）：FIRE / GREY / HEAT
+## 建置系統備忘
 
+```bash
+# 只重新建置強制部分
+make re
+
+# 只建置 Bonus
+make fclean && make bonus
+
+# 查詢按鍵代碼（在 X11 環境）
+xev | grep keycode
+```
+
+---
+
+*本 README 以台灣繁體中文撰寫，作為從零實作 FdF 專案的完整程式設計指南。*
